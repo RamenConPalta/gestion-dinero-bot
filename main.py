@@ -50,22 +50,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Registro añadido correctamente ✅")
 
 # ===== MAIN =====
-def run_bot():
+from flask import Flask
+import asyncio
+import threading
+
+
+async def start_bot():
     application = ApplicationBuilder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Bot funcionando...")
-    application.run_polling()
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+
+
+def run_bot():
+    asyncio.run(start_bot())
 
 
 if __name__ == "__main__":
-    # Iniciar bot en hilo separado
-    bot_thread = threading.Thread(target=run_bot)
-    bot_thread.start()
+    # Lanzamos bot en hilo separado
+    threading.Thread(target=run_bot).start()
 
-    # Crear servidor web para Render
+    # Servidor Flask para Render
     app = Flask(__name__)
 
     @app.route("/")
@@ -74,3 +84,4 @@ if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+

@@ -1,17 +1,13 @@
 import os
-import threading
-from flask import Flask
+import json
+from flask import Flask, request
 from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    ContextTypes
-)
-import gspread
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from google.oauth2.service_account import Credentials
-import asyncio
+import gspread
+
 # =========================
-# VARIABLES DE ENTORNO
+# VARIABLES
 # =========================
 
 TOKEN = os.environ.get("BOT_TOKEN")
@@ -26,8 +22,6 @@ scope = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-import json
-
 creds_json = os.environ.get("GOOGLE_CREDENTIALS")
 creds_dict = json.loads(creds_json)
 
@@ -37,46 +31,44 @@ credentials = Credentials.from_service_account_info(
 )
 
 client = gspread.authorize(credentials)
-sheet = client.open(SHEET_NAME).worksheet("REGISTRO")
+sheet = client.open(SHEET_NAME).worksheet("registro")
 
 # =========================
 # TELEGRAM BOT
 # =========================
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Bot activo ✅")
-
-async def add_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    sheet.append_row(["Prueba", "100", "Ingreso"])
-    await update.message.reply_text("Fila añadida al Sheet ✅")
-
+app = Flask(__name__)
 application = ApplicationBuilder().token(TOKEN).build()
 
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Bot funcionando 🚀")
+
+
 application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("test", add_test))
 
-# =========================
-# FLASK SERVER (Render necesita esto)
-# =========================
 
-app = Flask(__name__)
+@app.route(f"/{TOKEN}", methods=["POST"])
+async def webhook():
+    data = request.get_json(force=True)
+    update = Update.de_json(data, application.bot)
+    await application.process_update(update)
+    return "ok"
+
 
 @app.route("/")
 def home():
-    return "Bot funcionando"
+    return "Bot activo"
+
 
 # =========================
-# EJECUCIÓN PARA RENDER
+# START
 # =========================
-
-import asyncio
-
-def run_bot():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    application.run_polling()
 
 if __name__ == "__main__":
-    bot_thread = threading.Thread(target=run_bot)
-    bot_thread.start()
-    app.run(host="0.0.0.0", port=10000)
+    application.bot.set_webhook(
+        url=f"https://gestion-dinero-bot.onrender.com/{TOKEN}"
+    )
+
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)

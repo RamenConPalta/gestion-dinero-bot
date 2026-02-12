@@ -37,7 +37,15 @@ sheet = client.open(SHEET_NAME).worksheet("REGISTRO")
 # =========================
 
 async def start(update, context):
-    await update.message.reply_text("Bot funcionando 🚀")
+    user = update.effective_user.first_name
+    
+    sheet.append_row([
+        user,
+        "PRUEBA",
+        "1000"
+    ])
+    
+    await update.message.reply_text("Dato guardado en Google Sheets ✅")
 
 application = ApplicationBuilder().token(TOKEN).build()
 application.add_handler(CommandHandler("start", start))

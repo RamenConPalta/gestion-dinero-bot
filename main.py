@@ -56,6 +56,24 @@ def get_tipos():
 
     return sorted(tipos)
 
+def get_categorias(tipo_seleccionado):
+    data = listas_sheet.get_all_values()[1:]  # saltar cabecera
+    
+    categorias = set()
+
+    for row in data:
+        tipo = row[0]
+        categoria = row[1]
+
+        if (
+            tipo == tipo_seleccionado
+            and categoria
+            and categoria != "—"
+        ):
+            categorias.add(categoria)
+
+    return sorted(categorias)
+
 # =========================
 # TELEGRAM BOT
 # =========================
@@ -94,14 +112,41 @@ async def button_handler(update, context):
         )
 
     elif query.data.startswith("tipo|"):
-        user_id = query.from_user.id
-        tipo = query.data.split("|")[1]
+    user_id = query.from_user.id
+    tipo = query.data.split("|")[1]
 
-        user_states[user_id]["tipo"] = tipo
+    user_states[user_id]["tipo"] = tipo
 
+    categorias = get_categorias(tipo)
+
+    if not categorias:
         await query.edit_message_text(
-            f"Tipo seleccionado: {tipo} ✅"
+            f"Tipo seleccionado: {tipo} ✅\n\nNo hay categorías disponibles."
         )
+        return
+
+    keyboard = [
+        [InlineKeyboardButton(cat, callback_data=f"categoria|{cat}")]
+        for cat in categorias
+    ]
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(
+        f"Tipo seleccionado: {tipo} ✅\n\nSelecciona CATEGORÍA:",
+        reply_markup=reply_markup
+    )
+    elif query.data.startswith("categoria|"):
+    user_id = query.from_user.id
+    categoria = query.data.split("|")[1]
+
+    user_states[user_id]["categoria"] = categoria
+
+    await query.edit_message_text(
+        f"Tipo: {user_states[user_id]['tipo']} ✅\n"
+        f"Categoría: {categoria} ✅\n\n"
+        "(Continuamos en el siguiente paso)"
+    )
 
 
 application = ApplicationBuilder().token(TOKEN).build()

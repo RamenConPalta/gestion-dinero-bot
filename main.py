@@ -174,14 +174,14 @@ async def button_handler(update, context):
     # =========================
 
     elif query.data.startswith("categoria|"):
-    user_id = query.from_user.id
-    categoria = query.data.split("|")[1]
-
-    user_states[user_id]["categoria"] = categoria
-
-    tipo = user_states[user_id]["tipo"]
-
-    sub1_list = get_sub1(tipo, categoria)
+        user_id = query.from_user.id
+        categoria = query.data.split("|")[1]
+    
+        user_states[user_id]["categoria"] = categoria
+    
+        tipo = user_states[user_id]["tipo"]
+    
+        sub1_list = get_sub1(tipo, categoria)
 
         if not sub1_list:
             await query.edit_message_text(

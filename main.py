@@ -24,7 +24,14 @@ scope = [
 ]
 
 creds_json = os.environ.get("GOOGLE_CREDENTIALS")
-creds_dict = json.loads(creds_json)
+
+if not creds_json:
+    raise Exception("GOOGLE_CREDENTIALS no está definida")
+
+try:
+    creds_dict = json.loads(creds_json)
+except Exception as e:
+    raise Exception(f"Error leyendo JSON: {e}")
 
 credentials = Credentials.from_service_account_info(
     creds_dict,
@@ -32,7 +39,10 @@ credentials = Credentials.from_service_account_info(
 )
 
 client = gspread.authorize(credentials)
-sheet = client.open(SHEET_NAME).worksheet("REGISTRO")
+try:
+    sheet = client.open(SHEET_NAME).worksheet("REGISTRO")
+except Exception as e:
+    raise Exception(f"Error abriendo el Sheet: {e}")
 
 # =========================
 # TELEGRAM BOT

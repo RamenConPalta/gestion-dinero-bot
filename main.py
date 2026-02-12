@@ -5,7 +5,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from google.oauth2.service_account import Credentials
 import gspread
-
+import asyncio
 # =========================
 # VARIABLES
 # =========================
@@ -65,10 +65,17 @@ def home():
 # START
 # =========================
 
-if __name__ == "__main__":
-    application.bot.set_webhook(
+import asyncio
+
+async def main():
+    await application.initialize()
+    await application.bot.set_webhook(
         url=f"https://gestion-dinero-bot.onrender.com/{TOKEN}"
     )
+    await application.start()
+
+if __name__ == "__main__":
+    asyncio.run(main())
 
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)

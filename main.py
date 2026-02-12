@@ -1,6 +1,8 @@
 import os
 import json
 from telegram.ext import ApplicationBuilder, CommandHandler
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import CallbackQueryHandler
 from google.oauth2.service_account import Credentials
 import gspread
 
@@ -33,22 +35,39 @@ client = gspread.authorize(credentials)
 sheet = client.open(SHEET_NAME).worksheet("REGISTRO")
 
 # =========================
+# USER STATE
+# =========================
+
+user_states = {}
+
+# =========================
 # TELEGRAM BOT
 # =========================
 
 async def start(update, context):
-    user = update.effective_user.first_name
-    
-    sheet.append_row([
-        user,
-        "PRUEBA",
-        "1000"
-    ])
-    
-    await update.message.reply_text("Dato guardado en Google Sheets ✅")
+    keyboard = [
+        [InlineKeyboardButton("➕ Añadir registro", callback_data="add")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "💰 Sistema de gestión de dinero",
+        reply_markup=reply_markup
+    )
+
+async def button_handler(update, context):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "add":
+        user_id = query.from_user.id
+        user_states[user_id] = {}
+
+        await query.edit_message_text("Selecciona TIPO:")
 
 application = ApplicationBuilder().token(TOKEN).build()
 application.add_handler(CommandHandler("start", start))
+application.add_handler(CallbackQueryHandler(button_handler))
 
 # =========================
 # START WEBHOOK

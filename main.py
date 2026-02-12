@@ -49,7 +49,7 @@ application.add_handler(CommandHandler("start", start))
 
 
 @app.route(f"/{TOKEN}", methods=["POST"])
-async def webhook():
+def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, application.bot)
     await application.process_update(update)

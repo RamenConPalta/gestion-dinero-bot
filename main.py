@@ -85,6 +85,14 @@ async def setup():
 # ==============================
 # MAIN
 # ==============================
+import threading
+
+def run_bot():
+    application.run_polling()
+
+# Ejecutar el bot en un hilo separado
+bot_thread = threading.Thread(target=run_bot)
+bot_thread.start()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))

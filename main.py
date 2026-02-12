@@ -4,10 +4,8 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    CallbackQueryHandler
+    CallbackQueryHandler,
 )
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackQueryHandler
 from google.oauth2.service_account import Credentials
 import gspread
 
@@ -25,7 +23,7 @@ PORT = int(os.environ.get("PORT", 10000))
 
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
+    "https://www.googleapis.com/auth/drive",
 ]
 
 creds_json = os.environ.get("GOOGLE_CREDENTIALS")
@@ -33,12 +31,14 @@ creds_dict = json.loads(creds_json)
 
 credentials = Credentials.from_service_account_info(
     creds_dict,
-    scopes=scope
+    scopes=scope,
 )
 
 client = gspread.authorize(credentials)
-sheet = client.open(SHEET_NAME).worksheet("REGISTRO")
-listas_sheet = client.open(SHEET_NAME).worksheet("LISTAS")
+
+spreadsheet = client.open(SHEET_NAME)
+sheet = spreadsheet.worksheet("REGISTRO")
+listas_sheet = spreadsheet.worksheet("LISTAS")
 
 # =========================
 # USER STATE
@@ -46,19 +46,23 @@ listas_sheet = client.open(SHEET_NAME).worksheet("LISTAS")
 
 user_states = {}
 
+# =========================
+# FUNCIONES DATOS
+# =========================
+
 def get_tipos():
-    data = listas_sheet.get_all_values()[1:]  # saltamos cabecera
-    
+    data = listas_sheet.get_all_values()[1:]
     tipos = set()
+
     for row in data:
         if row[0] and row[0] != "—":
             tipos.add(row[0])
 
     return sorted(tipos)
 
+
 def get_categorias(tipo_seleccionado):
-    data = listas_sheet.get_all_values()[1:]  # saltar cabecera
-    
+    data = listas_sheet.get_all_values()[1:]
     categorias = set()
 
     for row in data:
@@ -89,9 +93,14 @@ async def start(update, context):
         reply_markup=reply_markup
     )
 
+
 async def button_handler(update, context):
     query = update.callback_query
     await query.answer()
+
+    # =========================
+    # BOTÓN AÑADIR
+    # =========================
 
     if query.data == "add":
         user_id = query.from_user.id
@@ -108,48 +117,62 @@ async def button_handler(update, context):
 
         await query.edit_message_text(
             "Selecciona TIPO:",
-            reply_markup=reply_markup
+            reply_markup=reply_markup,
         )
+
+    # =========================
+    # SELECCIÓN TIPO
+    # =========================
 
     elif query.data.startswith("tipo|"):
-    user_id = query.from_user.id
-    tipo = query.data.split("|")[1]
+        user_id = query.from_user.id
+        tipo = query.data.split("|")[1]
 
-    user_states[user_id]["tipo"] = tipo
+        user_states[user_id]["tipo"] = tipo
 
-    categorias = get_categorias(tipo)
+        categorias = get_categorias(tipo)
 
-    if not categorias:
+        if not categorias:
+            await query.edit_message_text(
+                f"Tipo seleccionado: {tipo} ✅\n\nNo hay categorías disponibles."
+            )
+            return
+
+        keyboard = [
+            [InlineKeyboardButton(cat, callback_data=f"categoria|{cat}")]
+            for cat in categorias
+        ]
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
         await query.edit_message_text(
-            f"Tipo seleccionado: {tipo} ✅\n\nNo hay categorías disponibles."
+            f"Tipo seleccionado: {tipo} ✅\n\nSelecciona CATEGORÍA:",
+            reply_markup=reply_markup,
         )
-        return
 
-    keyboard = [
-        [InlineKeyboardButton(cat, callback_data=f"categoria|{cat}")]
-        for cat in categorias
-    ]
+    # =========================
+    # SELECCIÓN CATEGORÍA
+    # =========================
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await query.edit_message_text(
-        f"Tipo seleccionado: {tipo} ✅\n\nSelecciona CATEGORÍA:",
-        reply_markup=reply_markup
-    )
     elif query.data.startswith("categoria|"):
-    user_id = query.from_user.id
-    categoria = query.data.split("|")[1]
+        user_id = query.from_user.id
+        categoria = query.data.split("|")[1]
 
-    user_states[user_id]["categoria"] = categoria
+        user_states[user_id]["categoria"] = categoria
 
-    await query.edit_message_text(
-        f"Tipo: {user_states[user_id]['tipo']} ✅\n"
-        f"Categoría: {categoria} ✅\n\n"
-        "(Continuamos en el siguiente paso)"
-    )
+        await query.edit_message_text(
+            f"Tipo: {user_states[user_id]['tipo']} ✅\n"
+            f"Categoría: {categoria} ✅\n\n"
+            "🔜 Próximo paso: SUB1"
+        )
 
+
+# =========================
+# START APP
+# =========================
 
 application = ApplicationBuilder().token(TOKEN).build()
+
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CallbackQueryHandler(button_handler))
 

@@ -31,7 +31,7 @@ credentials = Credentials.from_service_account_info(
 )
 
 client = gspread.authorize(credentials)
-sheet = client.open(SHEET_NAME).worksheet("registro")
+sheet = client.open(SHEET_NAME).worksheet("REGISTRO")
 
 # =========================
 # TELEGRAM BOT

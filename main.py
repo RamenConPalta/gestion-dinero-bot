@@ -1,6 +1,11 @@
 import os
 import json
-from telegram.ext import ApplicationBuilder, CommandHandler
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler
+)
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler
 from google.oauth2.service_account import Credentials
@@ -33,12 +38,23 @@ credentials = Credentials.from_service_account_info(
 
 client = gspread.authorize(credentials)
 sheet = client.open(SHEET_NAME).worksheet("REGISTRO")
+listas_sheet = client.open(SHEET_NAME).worksheet("LISTAS")
 
 # =========================
 # USER STATE
 # =========================
 
 user_states = {}
+
+def get_tipos():
+    data = listas_sheet.get_all_values()[1:]  # saltamos cabecera
+    
+    tipos = set()
+    for row in data:
+        if row[0] and row[0] != "—":
+            tipos.add(row[0])
+
+    return sorted(tipos)
 
 # =========================
 # TELEGRAM BOT
@@ -63,7 +79,30 @@ async def button_handler(update, context):
         user_id = query.from_user.id
         user_states[user_id] = {}
 
-        await query.edit_message_text("Selecciona TIPO:")
+        tipos = get_tipos()
+
+        keyboard = [
+            [InlineKeyboardButton(tipo, callback_data=f"tipo|{tipo}")]
+            for tipo in tipos
+        ]
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            "Selecciona TIPO:",
+            reply_markup=reply_markup
+        )
+
+    elif query.data.startswith("tipo|"):
+        user_id = query.from_user.id
+        tipo = query.data.split("|")[1]
+
+        user_states[user_id]["tipo"] = tipo
+
+        await query.edit_message_text(
+            f"Tipo seleccionado: {tipo} ✅"
+        )
+
 
 application = ApplicationBuilder().token(TOKEN).build()
 application.add_handler(CommandHandler("start", start))

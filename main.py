@@ -52,7 +52,10 @@ application.add_handler(CommandHandler("start", start))
 def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, application.bot)
-    await application.process_update(update)
+
+    import asyncio
+    asyncio.run(application.process_update(update))
+
     return "ok"
 
 

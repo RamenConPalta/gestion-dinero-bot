@@ -4,6 +4,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from flask import Flask
+import threading
 
 # ===== CONFIG =====
 TOKEN = os.getenv("BOT_TOKEN")
@@ -48,11 +50,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Registro añadido correctamente ✅")
 
 # ===== MAIN =====
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(TOKEN).build()
+def run_bot():
+    application = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Bot funcionando...")
-    app.run_polling()
+    application.run_polling()
+
+
+if __name__ == "__main__":
+    # Iniciar bot en hilo separado
+    bot_thread = threading.Thread(target=run_bot)
+    bot_thread.start()
+
+    # Crear servidor web para Render
+    app = Flask(__name__)
+
+    @app.route("/")
+    def home():
+        return "Bot activo"
+
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)

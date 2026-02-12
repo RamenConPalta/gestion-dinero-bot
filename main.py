@@ -9,7 +9,7 @@ from telegram.ext import (
 )
 import gspread
 from google.oauth2.service_account import Credentials
-
+import asyncio
 # =========================
 # VARIABLES DE ENTORNO
 # =========================
@@ -69,7 +69,11 @@ def home():
 # EJECUCIÓN PARA RENDER
 # =========================
 
+import asyncio
+
 def run_bot():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     application.run_polling()
 
 if __name__ == "__main__":

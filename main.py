@@ -15,7 +15,7 @@ from google.oauth2.service_account import Credentials
 # =========================
 
 TOKEN = os.environ.get("BOT_TOKEN")
-SHEET_NAME = os.environ.get("SHEET_NAME")
+SHEET_NAME = os.environ.get("SPREADSHEET_NAME")
 
 # =========================
 # GOOGLE SHEETS
@@ -37,7 +37,7 @@ credentials = Credentials.from_service_account_info(
 )
 
 client = gspread.authorize(credentials)
-sheet = client.open(SHEET_NAME).worksheet("registro")
+sheet = client.open(SHEET_NAME).worksheet("REGISTRO")
 
 # =========================
 # TELEGRAM BOT

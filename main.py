@@ -1,33 +1,29 @@
 import os
 import json
-from datetime import datetime
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    MessageHandler,
-    ConversationHandler,
-    ContextTypes,
-    filters
+    CallbackQueryHandler,
 )
 from google.oauth2.service_account import Credentials
 import gspread
 
-# =====================================================
-# VARIABLES DE ENTORNO
-# =====================================================
+# =========================
+# VARIABLES
+# =========================
 
 TOKEN = os.environ.get("BOT_TOKEN")
 SHEET_NAME = os.environ.get("SPREADSHEET_NAME")
 PORT = int(os.environ.get("PORT", 10000))
 
-# =====================================================
+# =========================
 # GOOGLE SHEETS
-# =====================================================
+# =========================
 
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
+    "https://www.googleapis.com/auth/drive",
 ]
 
 creds_json = os.environ.get("GOOGLE_CREDENTIALS")
@@ -35,175 +31,206 @@ creds_dict = json.loads(creds_json)
 
 credentials = Credentials.from_service_account_info(
     creds_dict,
-    scopes=scope
+    scopes=scope,
 )
 
 client = gspread.authorize(credentials)
-sheet = client.open(SHEET_NAME).worksheet("REGISTRO")
 
-# =====================================================
-# ESTADOS
-# =====================================================
+spreadsheet = client.open(SHEET_NAME)
+sheet = spreadsheet.worksheet("REGISTRO")
+listas_sheet = spreadsheet.worksheet("LISTAS")
 
-TIPO, CATEGORIA, SUB1, SUB2, SUB3, MONTO = range(6)
+# =========================
+# USER STATE
+# =========================
 
-# =====================================================
-# START
-# =====================================================
+user_states = {}
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [["Ingreso", "Gasto"]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+# =========================
+# FUNCIONES DATOS
+# =========================
 
-    await update.message.reply_text(
-        "¿Es un Ingreso o un Gasto?",
-        reply_markup=reply_markup
-    )
-    return TIPO
+def get_tipos():
+    data = listas_sheet.get_all_values()[1:]
+    tipos = set()
 
-# =====================================================
-# TIPO
-# =====================================================
+    for row in data:
+        if row[0] and row[0] != "—":
+            tipos.add(row[0])
 
-async def tipo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["tipo"] = update.message.text
+    return sorted(tipos)
 
+
+def get_categorias(tipo_seleccionado):
+    data = listas_sheet.get_all_values()[1:]
+    categorias = set()
+
+    for row in data:
+        tipo = row[0]
+        categoria = row[1]
+
+        if (
+            tipo == tipo_seleccionado
+            and categoria
+            and categoria != "—"
+        ):
+            categorias.add(categoria)
+
+    return sorted(categorias)
+
+def get_sub1(tipo_seleccionado, categoria_seleccionada):
+    data = listas_sheet.get_all_values()[1:]
+    sub1_set = set()
+
+    for row in data:
+        tipo = row[0]
+        categoria = row[1]
+        sub1 = row[2]
+
+        if (
+            tipo == tipo_seleccionado
+            and categoria == categoria_seleccionada
+            and sub1
+            and sub1 != "—"
+        ):
+            sub1_set.add(sub1)
+
+    return sorted(sub1_set)
+
+# =========================
+# TELEGRAM BOT
+# =========================
+
+async def start(update, context):
     keyboard = [
-        ["Personal", "Casa"],
-        ["Trabajo"]
+        [InlineKeyboardButton("➕ Añadir registro", callback_data="add")]
     ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        "Selecciona categoría:",
+        "💰 Sistema de gestión de dinero",
         reply_markup=reply_markup
     )
-    return CATEGORIA
 
-# =====================================================
-# CATEGORIA
-# =====================================================
 
-async def categoria(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["categoria"] = update.message.text
+async def button_handler(update, context):
+    query = update.callback_query
+    await query.answer()
 
-    keyboard = [
-        ["Sub1_A", "Sub1_B"],
-        ["Sub1_C"]
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    # =========================
+    # BOTÓN AÑADIR
+    # =========================
 
-    await update.message.reply_text(
-        "Selecciona Sub1:",
-        reply_markup=reply_markup
-    )
-    return SUB1
+    if query.data == "add":
+        user_id = query.from_user.id
+        user_states[user_id] = {}
 
-# =====================================================
-# SUB1
-# =====================================================
+        tipos = get_tipos()
 
-async def sub1(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["sub1"] = update.message.text
+        keyboard = [
+            [InlineKeyboardButton(tipo, callback_data=f"tipo|{tipo}")]
+            for tipo in tipos
+        ]
 
-    keyboard = [
-        ["Sub2_A", "Sub2_B"],
-        ["Sub2_C"]
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        "Selecciona Sub2:",
-        reply_markup=reply_markup
-    )
-    return SUB2
+        await query.edit_message_text(
+            "Selecciona TIPO:",
+            reply_markup=reply_markup,
+        )
 
-# =====================================================
-# SUB2
-# =====================================================
+    # =========================
+    # SELECCIÓN TIPO
+    # =========================
 
-async def sub2(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["sub2"] = update.message.text
+    elif query.data.startswith("tipo|"):
+        user_id = query.from_user.id
+        tipo = query.data.split("|")[1]
 
-    keyboard = [
-        ["Sub3_A", "Sub3_B"],
-        ["Sub3_C"]
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        user_states[user_id]["tipo"] = tipo
 
-    await update.message.reply_text(
-        "Selecciona Sub3:",
-        reply_markup=reply_markup
-    )
-    return SUB3
+        categorias = get_categorias(tipo)
 
-# =====================================================
-# SUB3
-# =====================================================
+        if not categorias:
+            await query.edit_message_text(
+                f"Tipo seleccionado: {tipo} ✅\n\nNo hay categorías disponibles."
+            )
+            return
 
-async def sub3(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["sub3"] = update.message.text
+        keyboard = [
+            [InlineKeyboardButton(cat, callback_data=f"categoria|{cat}")]
+            for cat in categorias
+        ]
 
-    await update.message.reply_text(
-        "Introduce el monto:"
-    )
-    return MONTO
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-# =====================================================
-# MONTO Y GUARDAR
-# =====================================================
+        await query.edit_message_text(
+            f"Tipo seleccionado: {tipo} ✅\n\nSelecciona CATEGORÍA:",
+            reply_markup=reply_markup,
+        )
 
-async def monto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["monto"] = update.message.text
+    # =========================
+    # SELECCIÓN CATEGORÍA
+    # =========================
 
-    fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
+    elif query.data.startswith("categoria|"):
+    user_id = query.from_user.id
+    categoria = query.data.split("|")[1]
 
-    sheet.append_row([
-        fecha,
-        context.user_data.get("tipo"),
-        context.user_data.get("categoria"),
-        context.user_data.get("sub1"),
-        context.user_data.get("sub2"),
-        context.user_data.get("sub3"),
-        context.user_data.get("monto")
-    ])
+    user_states[user_id]["categoria"] = categoria
 
-    await update.message.reply_text("Movimiento guardado ✅")
+    tipo = user_states[user_id]["tipo"]
 
-    return ConversationHandler.END
+    sub1_list = get_sub1(tipo, categoria)
 
-# =====================================================
-# CANCELAR
-# =====================================================
+        if not sub1_list:
+            await query.edit_message_text(
+                f"Tipo: {tipo} ✅\n"
+                f"Categoría: {categoria} ✅\n\n"
+                "No hay SUB1 disponibles."
+            )
+            return
+    
+        keyboard = [
+            [InlineKeyboardButton(s, callback_data=f"sub1|{s}")]
+            for s in sub1_list
+        ]
+    
+        reply_markup = InlineKeyboardMarkup(keyboard)
+    
+        await query.edit_message_text(
+            f"Tipo: {tipo} ✅\n"
+            f"Categoría: {categoria} ✅\n\n"
+            "Selecciona SUB1:",
+            reply_markup=reply_markup,
+        )
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Operación cancelada ❌")
-    return ConversationHandler.END
+    elif query.data.startswith("sub1|"):
+        user_id = query.from_user.id
+        sub1 = query.data.split("|")[1]
+    
+        user_states[user_id]["sub1"] = sub1
+    
+        await query.edit_message_text(
+            f"Tipo: {user_states[user_id]['tipo']} ✅\n"
+            f"Categoría: {user_states[user_id]['categoria']} ✅\n"
+            f"SUB1: {sub1} ✅\n\n"
+            "🔜 Próximo paso: SUB2"
+        )
 
-# =====================================================
-# APLICACIÓN
-# =====================================================
+
+# =========================
+# START APP
+# =========================
 
 application = ApplicationBuilder().token(TOKEN).build()
 
-conv_handler = ConversationHandler(
-    entry_points=[CommandHandler("start", start)],
-    states={
-        TIPO: [MessageHandler(filters.TEXT & ~filters.COMMAND, tipo)],
-        CATEGORIA: [MessageHandler(filters.TEXT & ~filters.COMMAND, categoria)],
-        SUB1: [MessageHandler(filters.TEXT & ~filters.COMMAND, sub1)],
-        SUB2: [MessageHandler(filters.TEXT & ~filters.COMMAND, sub2)],
-        SUB3: [MessageHandler(filters.TEXT & ~filters.COMMAND, sub3)],
-        MONTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, monto)],
-    },
-    fallbacks=[CommandHandler("cancel", cancel)],
-)
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CallbackQueryHandler(button_handler))
 
-application.add_handler(conv_handler)
-
-# =====================================================
-# WEBHOOK PARA RENDER
-# =====================================================
+# =========================
+# START WEBHOOK
+# =========================
 
 if __name__ == "__main__":
     application.run_webhook(

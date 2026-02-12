@@ -1,11 +1,12 @@
 import os
 import json
+import asyncio
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from google.oauth2.service_account import Credentials
 import gspread
-import asyncio
+
 # =========================
 # VARIABLES
 # =========================
@@ -37,40 +38,36 @@ sheet = client.open(SHEET_NAME).worksheet("REGISTRO")
 # TELEGRAM BOT
 # =========================
 
-app = Flask(__name__)
+flask_app = Flask(__name__)
 application = ApplicationBuilder().token(TOKEN).build()
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Bot funcionando 🚀")
 
-
 application.add_handler(CommandHandler("start", start))
 
+# =========================
+# WEBHOOK
+# =========================
 
-@app.route(f"/{TOKEN}", methods=["POST"])
+@flask_app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, application.bot)
 
-    import asyncio
     asyncio.run(application.process_update(update))
 
     return "ok"
 
-
-@app.route("/")
+@flask_app.route("/")
 def home():
     return "Bot activo"
-
 
 # =========================
 # START
 # =========================
 
-import asyncio
-
-async def main():
+async def setup():
     await application.initialize()
     await application.bot.set_webhook(
         url=f"https://gestion-dinero-bot.onrender.com/{TOKEN}"
@@ -78,7 +75,7 @@ async def main():
     await application.start()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(setup())
 
     port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    flask_app.run(host="0.0.0.0", port=port)

@@ -185,7 +185,7 @@ async def start(update, context):
 
 async def generar_resumen(query, año, mes):
 
-    print("======== INICIO RESUMEN ========")
+    print("=== INICIO GENERAR RESUMEN ===")
     print("AÑO:", año, "MES:", mes)
 
     registros = sheet.get_all_values()[1:]
@@ -195,81 +195,72 @@ async def generar_resumen(query, año, mes):
 
     for row in registros:
 
-        if not row or len(row) < 10:
-            print("Fila ignorada por longitud:", row)
+        if len(row) < 9:
             continue
 
-        fecha_str = str(row[0]).strip()
-        print("FECHA RAW:", fecha_str)
+        try:
+            # ================= FECHA =================
+            fecha_raw = row[0]
+            fecha_str = str(fecha_raw).strip()
 
-        if not fecha_str:
-            print("Fila sin fecha, ignorada")
-            continue
+            print("FECHA RAW:", fecha_str)
 
-        # Parsear fecha
-        fecha = None
-        for formato in ("%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d"):
-            try:
-                fecha = datetime.strptime(fecha_str, formato)
-                print("Fecha parseada correctamente:", fecha)
-                break
-            except:
+            if not fecha_str:
                 continue
 
-        if not fecha:
-            print("No se pudo parsear fecha:", fecha_str)
-            continue
+            fecha = None
+            for formato in ("%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d"):
+                try:
+                    fecha = datetime.strptime(fecha_str, formato)
+                    print("Fecha parseada correctamente:", fecha)
+                    break
+                except:
+                    continue
 
-        # Filtro año
-        if fecha.year != año:
-            print("Ignorado por año:", fecha.year)
-            continue
+            if not fecha:
+                print("No se pudo parsear la fecha")
+                continue
 
-        # Filtro mes
-        if mes is not None and fecha.month != mes:
-            print("Ignorado por mes:", fecha.month)
-            continue
+            # ================= FILTROS =================
+            if fecha.year != año:
+                continue
 
-       try:
+            if mes is not None and fecha.month != mes:
+                continue
+
+            # ================= CAMPOS =================
             persona = row[1].strip()
             categoria = row[4].strip()
             sub1 = row[5].strip()
             sub2 = row[6].strip()
-        
-            # ===== LIMPIEZA ROBUSTA IMPORTE =====
+
+            # ================= LIMPIEZA IMPORTE =================
             importe_str = str(row[-1]).strip()
             print("IMPORTE RAW:", importe_str)
-        
+
             importe_str = (
                 importe_str
                 .replace("€", "")
                 .replace(",", ".")
                 .replace(" ", "")
             )
-        
-            # Dejar solo números y punto
+
             importe_str = "".join(c for c in importe_str if c.isdigit() or c == ".")
-        
+
+            if not importe_str:
+                continue
+
             importe = float(importe_str)
-        
             print("IMPORTE LIMPIO:", importe)
-        
+
+            if importe <= 0:
+                continue
+
         except Exception as e:
             print("Error leyendo fila:", e)
             continue
 
-
-        print("Persona:", persona, 
-              "Categoria:", categoria,
-              "Sub1:", sub1,
-              "Sub2:", sub2,
-              "Importe:", importe)
-
-        if importe <= 0:
-            print("Importe <= 0, ignorado")
-            continue
-
-        # Construcción estructura
+        # ================= CONSTRUCCIÓN ESTRUCTURA =================
         estructura.setdefault(persona, {})
         estructura[persona].setdefault(categoria, {})
         estructura[persona][categoria].setdefault(sub1, {})
@@ -280,17 +271,17 @@ async def generar_resumen(query, año, mes):
         estructura[persona][categoria][sub1][sub2] = \
             estructura[persona][categoria][sub1].get(sub2, 0) + importe
 
-        print("Añadido a estructura ✔")
-
     print("ESTRUCTURA FINAL:", estructura)
 
+    # ================= SI NO HAY DATOS =================
     if not estructura:
-        print("⚠ No hay datos para ese periodo")
         await query.edit_message_text(
             f"No hay datos para {mes if mes else 'todo el año'} {año}."
         )
+        print("No hay datos encontrados.")
         return
 
+    # ================= CREAR MENSAJE =================
     mensaje = f"📊 RESUMEN {año}"
     if mes:
         mensaje += f" - Mes {mes}"
@@ -304,14 +295,6 @@ async def generar_resumen(query, año, mes):
         mensaje += f"👤 {persona}\n"
 
         for categoria, sub1_data in estructura[persona].items():
-
-            categoria_total = sum(
-                sum(sub2_data.values())
-                for sub2_data in sub1_data.values()
-            )
-
-            if categoria_total <= 0:
-                continue
 
             mensaje += f"  ▪ {categoria}\n"
 
@@ -330,14 +313,15 @@ async def generar_resumen(query, año, mes):
 
         mensaje += "\n"
 
-    print("======== FIN RESUMEN ========")
-
     keyboard = [[InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]]
 
     await query.edit_message_text(
         mensaje,
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
+    print("=== FIN GENERAR RESUMEN ===")
+
 
 
 

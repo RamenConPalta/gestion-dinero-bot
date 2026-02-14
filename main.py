@@ -183,13 +183,42 @@ async def start(update, context):
 # RESUMEN
 # =========================
 
-async def mostrar_resumen(query):
+async def generar_resumen(query, año, mes):
 
     registros = sheet.get_all_values()[1:]
-
     estructura = {}
 
     for row in registros:
+
+        if len(row) < 9:
+            continue
+
+        fecha_str = str(row[0]).strip()
+        print("FECHA LEÍDA:", fecha_str)
+
+        if not fecha_str:
+            continue
+
+        # Intentar parsear fecha
+        fecha = None
+        for formato in ("%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d"):
+            try:
+                fecha = datetime.strptime(fecha_str, formato)
+                break
+            except:
+                continue
+
+        if not fecha:
+            continue
+
+        # FILTRO AÑO
+        if fecha.year != año:
+            continue
+
+        # FILTRO MES
+        if mes is not None and fecha.month != mes:
+            continue
+
         try:
             persona = row[1].strip()
             categoria = row[4].strip()
@@ -202,71 +231,50 @@ async def mostrar_resumen(query):
         if importe <= 0:
             continue
 
-        if persona not in estructura:
-            estructura[persona] = {}
+        # Construcción estructura
+        estructura.setdefault(persona, {})
+        estructura[persona].setdefault(categoria, {})
+        estructura[persona][categoria].setdefault(sub1, {})
 
-        if categoria not in estructura[persona]:
-            estructura[persona][categoria] = {}
+        if sub2 in ("—", ""):
+            sub2 = "_total"
 
-        if sub1 not in estructura[persona][categoria]:
-            estructura[persona][categoria][sub1] = {}
+        estructura[persona][categoria][sub1][sub2] = \
+            estructura[persona][categoria][sub1].get(sub2, 0) + importe
 
-        if sub2 == "—" or sub2 == "":
-            sub2 = None
+    if not estructura:
+        await query.edit_message_text(
+            f"No hay datos para {mes if mes else 'todo el año'} {año}."
+        )
+        return
 
-        if sub2:
-            if sub2 not in estructura[persona][categoria][sub1]:
-                estructura[persona][categoria][sub1][sub2] = 0
-            estructura[persona][categoria][sub1][sub2] += importe
-        else:
-            if "_total" not in estructura[persona][categoria][sub1]:
-                estructura[persona][categoria][sub1]["_total"] = 0
-            estructura[persona][categoria][sub1]["_total"] += importe
-
-    mensaje = "📊 RESUMEN DETALLADO\n\n"
+    mensaje = f"📊 RESUMEN {año}"
+    if mes:
+        mensaje += f" - Mes {mes}"
+    mensaje += "\n\n"
 
     for persona in ["Ramon", "Claudia", "Común"]:
 
         if persona not in estructura:
             continue
 
-        mensaje += f"👤 *{persona}*\n"
+        mensaje += f"👤 {persona}\n"
 
         for categoria, sub1_data in estructura[persona].items():
-
-            categoria_total = 0
-
-            for sub1, sub2_data in sub1_data.items():
-
-                sub1_total = 0
-
-                for key, value in sub2_data.items():
-                    if key == "_total":
-                        sub1_total += value
-                    else:
-                        sub1_total += value
-
-                if sub1_total > 0:
-                    categoria_total += sub1_total
-
-            if categoria_total == 0:
-                continue
 
             mensaje += f"  ▪ {categoria}\n"
 
             for sub1, sub2_data in sub1_data.items():
 
-                sub1_total = 0
-                for key, value in sub2_data.items():
-                    sub1_total += value
+                total_sub1 = sum(sub2_data.values())
 
-                if sub1_total <= 0:
+                if total_sub1 <= 0:
                     continue
 
-                mensaje += f"      • {sub1} → {round(sub1_total,2)}€\n"
+                mensaje += f"      • {sub1} → {round(total_sub1,2)}€\n"
 
                 for key, value in sub2_data.items():
-                    if key != "_total" and value > 0:
+                    if key != "_total":
                         mensaje += f"          - {key}: {round(value,2)}€\n"
 
         mensaje += "\n"
@@ -275,9 +283,9 @@ async def mostrar_resumen(query):
 
     await query.edit_message_text(
         mensaje,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
 
 # =========================
 # RECIBIR TEXTO
@@ -786,115 +794,6 @@ async def button_handler(update, context):
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return
-
-# =========================
-# GENERAR RESUMEN
-# =========================
-
-async def generar_resumen(query, año, mes):
-
-    registros = sheet.get_all_values()[1:]
-    estructura = {}
-
-    for row in registros:
-
-        if len(row) < 9:
-            continue
-
-        fecha_str = str(row[0]).strip()
-        print("FECHA LEÍDA:", fecha_str)
-
-        if not fecha_str:
-            continue
-
-        # Intentar parsear fecha
-        fecha = None
-        for formato in ("%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d"):
-            try:
-                fecha = datetime.strptime(fecha_str, formato)
-                break
-            except:
-                continue
-
-        if not fecha:
-            continue
-
-        # FILTRO AÑO
-        if fecha.year != año:
-            continue
-
-        # FILTRO MES
-        if mes is not None and fecha.month != mes:
-            continue
-
-        try:
-            persona = row[1].strip()
-            categoria = row[4].strip()
-            sub1 = row[5].strip()
-            sub2 = row[6].strip()
-            importe = float(str(row[-1]).replace(",", "."))
-        except:
-            continue
-
-        if importe <= 0:
-            continue
-
-        # Construcción estructura
-        estructura.setdefault(persona, {})
-        estructura[persona].setdefault(categoria, {})
-        estructura[persona][categoria].setdefault(sub1, {})
-
-        if sub2 in ("—", ""):
-            sub2 = "_total"
-
-        estructura[persona][categoria][sub1][sub2] = \
-            estructura[persona][categoria][sub1].get(sub2, 0) + importe
-
-    if not estructura:
-        await query.edit_message_text(
-            f"No hay datos para {mes if mes else 'todo el año'} {año}."
-        )
-        return
-
-    mensaje = f"📊 RESUMEN {año}"
-    if mes:
-        mensaje += f" - Mes {mes}"
-    mensaje += "\n\n"
-
-    for persona in ["Ramon", "Claudia", "Común"]:
-
-        if persona not in estructura:
-            continue
-
-        mensaje += f"👤 {persona}\n"
-
-        for categoria, sub1_data in estructura[persona].items():
-
-            mensaje += f"  ▪ {categoria}\n"
-
-            for sub1, sub2_data in sub1_data.items():
-
-                total_sub1 = sum(sub2_data.values())
-
-                if total_sub1 <= 0:
-                    continue
-
-                mensaje += f"      • {sub1} → {round(total_sub1,2)}€\n"
-
-                for key, value in sub2_data.items():
-                    if key != "_total":
-                        mensaje += f"          - {key}: {round(value,2)}€\n"
-
-        mensaje += "\n"
-
-    keyboard = [[InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]]
-
-    await query.edit_message_text(
-        mensaje,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-
 
 # =========================
 # REGISTRO DE HANDLERS

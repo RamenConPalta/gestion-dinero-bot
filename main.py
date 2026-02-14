@@ -187,7 +187,6 @@ async def generar_resumen(query, año, mes):
 
     registros = sheet.get_all_values()[1:]
     estructura = {}
-    print("FECHA LEÍDA:", fecha_str)
 
     for row in registros:
 

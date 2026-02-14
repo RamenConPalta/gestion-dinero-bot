@@ -146,6 +146,29 @@ async def mostrar_menu(query):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+async def mostrar_selector_meses(query):
+
+    año_actual = datetime.now().year
+
+    meses = [
+        "Enero","Febrero","Marzo","Abril","Mayo","Junio",
+        "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"
+    ]
+
+    keyboard = []
+
+    for i, mes in enumerate(meses, start=1):
+        callback = f"resumen_mes|{año_actual}|{i}"
+        keyboard.append([InlineKeyboardButton(f"{mes} {año_actual}", callback_data=callback)])
+
+    keyboard.append([InlineKeyboardButton(f"📊 Todo {año_actual}", callback_data=f"resumen_año|{año_actual}")])
+    keyboard.append([InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")])
+
+    await query.edit_message_text(
+        "📅 Selecciona periodo:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
 async def start(update, context):
     keyboard = [
         [InlineKeyboardButton("➕ Añadir registro", callback_data="menu|add")],
@@ -371,7 +394,17 @@ async def button_handler(update, context):
         return
 
     if data=="menu|resumen":
-        await mostrar_resumen(query)
+        await mostrar_selector_meses(query)
+        return
+
+    if data.startswith("resumen_mes|"):
+        _, año, mes = data.split("|")
+        await generar_resumen(query, int(año), int(mes))
+        return
+    
+    if data.startswith("resumen_año|"):
+        _, año = data.split("|")
+        await generar_resumen(query, int(año), None)
         return
 
     # FECHA
@@ -753,6 +786,93 @@ async def button_handler(update, context):
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return
+
+# =========================
+# GENERAR RESUMEN
+# =========================
+
+async def generar_resumen(query, año, mes):
+
+    registros = sheet.get_all_values()[1:]
+    estructura = {}
+
+    for row in registros:
+        try:
+            fecha = datetime.strptime(row[0].strip(), "%d/%m/%Y")
+            persona = row[1].strip()
+            categoria = row[4].strip()
+            sub1 = row[5].strip()
+            sub2 = row[6].strip()
+            importe = float(str(row[-1]).replace(",", "."))
+        except:
+            continue
+
+        if fecha.year != año:
+            continue
+
+        if mes and fecha.month != mes:
+            continue
+
+        if importe <= 0:
+            continue
+
+        if persona not in estructura:
+            estructura[persona] = {}
+
+        if categoria not in estructura[persona]:
+            estructura[persona][categoria] = {}
+
+        if sub1 not in estructura[persona][categoria]:
+            estructura[persona][categoria][sub1] = {}
+
+        if sub2 == "—" or sub2 == "":
+            sub2 = None
+
+        if sub2:
+            estructura[persona][categoria][sub1][sub2] = \
+                estructura[persona][categoria][sub1].get(sub2, 0) + importe
+        else:
+            estructura[persona][categoria][sub1]["_total"] = \
+                estructura[persona][categoria][sub1].get("_total", 0) + importe
+
+    if not estructura:
+        await query.edit_message_text("No hay datos para este periodo.")
+        return
+
+    mensaje = f"📊 RESUMEN {mes if mes else 'ANUAL'} {año}\n\n"
+
+    for persona in ["Ramon","Claudia","Común"]:
+
+        if persona not in estructura:
+            continue
+
+        mensaje += f"👤 {persona}\n"
+
+        for categoria, sub1_data in estructura[persona].items():
+
+            mensaje += f"  ▪ {categoria}\n"
+
+            for sub1, sub2_data in sub1_data.items():
+
+                total_sub1 = sum(sub2_data.values())
+
+                if total_sub1 <= 0:
+                    continue
+
+                mensaje += f"      • {sub1} → {round(total_sub1,2)}€\n"
+
+                for key, value in sub2_data.items():
+                    if key != "_total":
+                        mensaje += f"          - {key}: {round(value,2)}€\n"
+
+        mensaje += "\n"
+
+    keyboard=[[InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]]
+
+    await query.edit_message_text(
+        mensaje,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 
 # =========================

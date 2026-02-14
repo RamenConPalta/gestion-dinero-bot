@@ -798,15 +798,36 @@ async def generar_resumen(query, año, mes):
 
     for row in registros:
         try:
-            fecha = datetime.strptime(row[0].strip(), "%d/%m/%Y")
+            # ========= FECHA =========
+            fecha_raw = row[0]
+
+            if isinstance(fecha_raw, datetime):
+                fecha = fecha_raw
+            else:
+                fecha_str = str(fecha_raw).strip()
+                fecha = None
+
+                for formato in ("%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d"):
+                    try:
+                        fecha = datetime.strptime(fecha_str, formato)
+                        break
+                    except:
+                        continue
+
+                if not fecha:
+                    continue
+
+            # ========= OTROS CAMPOS =========
             persona = row[1].strip()
             categoria = row[4].strip()
             sub1 = row[5].strip()
             sub2 = row[6].strip()
             importe = float(str(row[-1]).replace(",", "."))
+
         except:
             continue
 
+        # ========= FILTROS =========
         if fecha.year != año:
             continue
 
@@ -816,6 +837,7 @@ async def generar_resumen(query, año, mes):
         if importe <= 0:
             continue
 
+        # ========= CONSTRUCCIÓN ESTRUCTURA =========
         if persona not in estructura:
             estructura[persona] = {}
 
@@ -835,13 +857,20 @@ async def generar_resumen(query, año, mes):
             estructura[persona][categoria][sub1]["_total"] = \
                 estructura[persona][categoria][sub1].get("_total", 0) + importe
 
+    # ========= SI NO HAY DATOS =========
     if not estructura:
         await query.edit_message_text("No hay datos para este periodo.")
         return
 
-    mensaje = f"📊 RESUMEN {mes if mes else 'ANUAL'} {año}\n\n"
+    # ========= CREAR MENSAJE =========
+    titulo = f"📊 RESUMEN {año}"
+    if mes:
+        titulo += f" - Mes {mes}"
+    titulo += "\n\n"
 
-    for persona in ["Ramon","Claudia","Común"]:
+    mensaje = titulo
+
+    for persona in ["Ramon", "Claudia", "Común"]:
 
         if persona not in estructura:
             continue
@@ -849,6 +878,14 @@ async def generar_resumen(query, año, mes):
         mensaje += f"👤 {persona}\n"
 
         for categoria, sub1_data in estructura[persona].items():
+
+            categoria_total = 0
+
+            for sub1, sub2_data in sub1_data.items():
+                categoria_total += sum(sub2_data.values())
+
+            if categoria_total <= 0:
+                continue
 
             mensaje += f"  ▪ {categoria}\n"
 
@@ -862,17 +899,18 @@ async def generar_resumen(query, año, mes):
                 mensaje += f"      • {sub1} → {round(total_sub1,2)}€\n"
 
                 for key, value in sub2_data.items():
-                    if key != "_total":
+                    if key != "_total" and value > 0:
                         mensaje += f"          - {key}: {round(value,2)}€\n"
 
         mensaje += "\n"
 
-    keyboard=[[InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]]
+    keyboard = [[InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]]
 
     await query.edit_message_text(
         mensaje,
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
 
 
 # =========================

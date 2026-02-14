@@ -302,14 +302,17 @@ async def button_handler(update, context):
     
         # Si no hay SUB2 → pasamos directamente a importe
         if not sub2_list:
+            user_states[user_id]["sub2"] = ""
+            user_states[user_id]["sub3"] = ""
+            user_states[user_id]["esperando_importe"] = True
+
             await query.edit_message_text(
                 f"Tipo: {tipo} ✅\n"
                 f"Categoría: {categoria} ✅\n"
                 f"SUB1: {sub1} ✅\n\n"
-                "No hay SUB2.\n"
-                "🔜 Próximo paso: importe 💰"
+                "No hay SUB2.\n\n"
+                "💰 Escribe el importe:"
             )
-            user_states[user_id]["sub2"] = ""
             return
     
         keyboard = [

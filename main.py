@@ -797,78 +797,69 @@ async def generar_resumen(query, año, mes):
     estructura = {}
 
     for row in registros:
+
+        if len(row) < 9:
+            continue
+
+        fecha_str = str(row[0]).strip()
+        print("FECHA LEÍDA:", fecha_str)
+
+        if not fecha_str:
+            continue
+
+        # Intentar parsear fecha
+        fecha = None
+        for formato in ("%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d"):
+            try:
+                fecha = datetime.strptime(fecha_str, formato)
+                break
+            except:
+                continue
+
+        if not fecha:
+            continue
+
+        # FILTRO AÑO
+        if fecha.year != año:
+            continue
+
+        # FILTRO MES
+        if mes is not None and fecha.month != mes:
+            continue
+
         try:
-            # ========= FECHA =========
-            fecha_raw = row[0]
-
-            if isinstance(fecha_raw, datetime):
-                fecha = fecha_raw
-            else:
-                fecha_str = str(fecha_raw).strip()
-                fecha = None
-
-                for formato in ("%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d"):
-                    try:
-                        fecha = datetime.strptime(fecha_str, formato)
-                        break
-                    except:
-                        continue
-
-                if not fecha:
-                    continue
-
-            # ========= OTROS CAMPOS =========
             persona = row[1].strip()
             categoria = row[4].strip()
             sub1 = row[5].strip()
             sub2 = row[6].strip()
             importe = float(str(row[-1]).replace(",", "."))
-
         except:
-            continue
-
-        # ========= FILTROS =========
-        if fecha.year != año:
-            continue
-
-        if mes and fecha.month != mes:
             continue
 
         if importe <= 0:
             continue
 
-        # ========= CONSTRUCCIÓN ESTRUCTURA =========
-        if persona not in estructura:
-            estructura[persona] = {}
+        # Construcción estructura
+        estructura.setdefault(persona, {})
+        estructura[persona].setdefault(categoria, {})
+        estructura[persona][categoria].setdefault(sub1, {})
 
-        if categoria not in estructura[persona]:
-            estructura[persona][categoria] = {}
+        if sub2 in ("—", ""):
+            sub2 = "_total"
 
-        if sub1 not in estructura[persona][categoria]:
-            estructura[persona][categoria][sub1] = {}
+        estructura[persona][categoria][sub1][sub2] = \
+            estructura[persona][categoria][sub1].get(sub2, 0) + importe
 
-        if sub2 == "—" or sub2 == "":
-            sub2 = None
-
-        if sub2:
-            estructura[persona][categoria][sub1][sub2] = \
-                estructura[persona][categoria][sub1].get(sub2, 0) + importe
-        else:
-            estructura[persona][categoria][sub1]["_total"] = \
-                estructura[persona][categoria][sub1].get("_total", 0) + importe
-
-    # ========= SI NO HAY DATOS =========
     if not estructura:
-        await query.edit_message_text("No hay datos para este periodo.")
+        await query.edit_message_text(
+            f"No hay datos para {mes if mes else 'todo el año'} {año}."
+        )
         return
 
-    # ========= CREAR MENSAJE =========
-    titulo = f"📊 RESUMEN {año}"
+    mensaje = f"📊 RESUMEN {año}"
     if mes:
-        titulo += f" - Mes {mes}"
-    titulo += "\n\n"
-
-    mensaje = titulo
+        mensaje += f" - Mes {mes}"
+    mensaje += "\n\n"
 
     for persona in ["Ramon", "Claudia", "Común"]:
 
@@ -878,14 +869,6 @@ async def generar_resumen(query, año, mes):
         mensaje += f"👤 {persona}\n"
 
         for categoria, sub1_data in estructura[persona].items():
-
-            categoria_total = 0
-
-            for sub1, sub2_data in sub1_data.items():
-                categoria_total += sum(sub2_data.values())
-
-            if categoria_total <= 0:
-                continue
 
             mensaje += f"  ▪ {categoria}\n"
 
@@ -899,7 +882,7 @@ async def generar_resumen(query, año, mes):
                 mensaje += f"      • {sub1} → {round(total_sub1,2)}€\n"
 
                 for key, value in sub2_data.items():
-                    if key != "_total" and value > 0:
+                    if key != "_total":
                         mensaje += f"          - {key}: {round(value,2)}€\n"
 
         mensaje += "\n"

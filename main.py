@@ -275,12 +275,6 @@ async def button_handler(update, context):
         await mostrar_menu(query)
         return
 
-    # VOLVER ATRAS
-    if data=="back":
-        user_states[user_id].popitem()
-        await query.edit_message_text("⬅ Paso anterior eliminado.")
-        return
-
     # MENU ADD
     if data=="menu|add":
         
@@ -347,7 +341,7 @@ async def button_handler(update, context):
                     for p in pagadores]
 
         keyboard.append([
-            InlineKeyboardButton("⬅ Volver", callback_data="back_persona"),
+            InlineKeyboardButton("⬅ Volver", callback_data="back"),
             InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")
         ])
 
@@ -371,7 +365,7 @@ async def button_handler(update, context):
                     for t in tipos]
 
         keyboard.append([
-            InlineKeyboardButton("⬅ Volver", callback_data="back_pagador"),
+            InlineKeyboardButton("⬅ Volver", callback_data="back"),
             InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")
         ])
 
@@ -395,7 +389,7 @@ async def button_handler(update, context):
                     for c in categorias]
 
         keyboard.append([
-            InlineKeyboardButton("⬅ Volver", callback_data="back_tipo"),
+            InlineKeyboardButton("⬅ Volver", callback_data="back"),
             InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")
         ])
 
@@ -419,7 +413,7 @@ async def button_handler(update, context):
                     for s in sub1_list]
 
         keyboard.append([
-            InlineKeyboardButton("⬅ Volver", callback_data="back_categoria"),
+            InlineKeyboardButton("⬅ Volver", callback_data="back"),
             InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")
         ])
 
@@ -453,7 +447,7 @@ async def button_handler(update, context):
             ]]
 
             keyboard.append([
-                InlineKeyboardButton("⬅ Volver", callback_data="back_sub1"),
+                InlineKeyboardButton("⬅ Volver", callback_data="back"),
                 InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")
             ])
 
@@ -468,7 +462,7 @@ async def button_handler(update, context):
                     for s in sub2_list]
 
         keyboard.append([
-            InlineKeyboardButton("⬅ Volver", callback_data="back_sub1"),
+            InlineKeyboardButton("⬅ Volver", callback_data="back"),
             InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")
         ])
 
@@ -502,7 +496,7 @@ async def button_handler(update, context):
             ]]
 
             keyboard.append([
-                InlineKeyboardButton("⬅ Volver", callback_data="back_sub2"),
+                InlineKeyboardButton("⬅ Volver", callback_data="back"),
                 InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")
             ])
 
@@ -517,7 +511,7 @@ async def button_handler(update, context):
                     for s in sub3_list]
 
         keyboard.append([
-            InlineKeyboardButton("⬅ Volver", callback_data="back_sub2"),
+            InlineKeyboardButton("⬅ Volver", callback_data="back"),
             InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")
         ])
 
@@ -541,7 +535,7 @@ async def button_handler(update, context):
         ]]
 
         keyboard.append([
-            InlineKeyboardButton("⬅ Volver", callback_data="back_sub3"),
+            InlineKeyboardButton("⬅ Volver", callback_data="back"),
             InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")
         ])
 
@@ -594,7 +588,7 @@ async def button_handler(update, context):
                         data_state["categoria"],
                         data_state["sub1"],
                         data_state["sub2"]
-                     )] + [nav_buttons()]
+                     )] + [botones_navegacion()]
                 )
             )
             return
@@ -609,7 +603,7 @@ async def button_handler(update, context):
                         data_state["tipo"],
                         data_state["categoria"],
                         data_state["sub1"]
-                     )] + [nav_buttons()]
+                     )] + [botones_navegacion()]
                 )
             )
             return
@@ -623,7 +617,7 @@ async def button_handler(update, context):
                      for s in get_sub1(
                         data_state["tipo"],
                         data_state["categoria"]
-                     )] + [nav_buttons()]
+                     )] + [botones_navegacion()]
                 )
             )
             return
@@ -634,7 +628,7 @@ async def button_handler(update, context):
                 "\nSelecciona CATEGORÍA:",
                 reply_markup=InlineKeyboardMarkup(
                     [[InlineKeyboardButton(c, callback_data=f"categoria|{c}")]
-                     for c in get_categorias(data_state["tipo"])] + [nav_buttons()]
+                     for c in get_categorias(data_state["tipo"])] + [botones_navegacion()]
                 )
             )
             return
@@ -645,7 +639,7 @@ async def button_handler(update, context):
                 "\nSelecciona TIPO:",
                 reply_markup=InlineKeyboardMarkup(
                     [[InlineKeyboardButton(t, callback_data=f"tipo|{t}")]
-                     for t in get_tipos()] + [nav_buttons()]
+                     for t in get_tipos()] + [botones_navegacion()]
                 )
             )
             return
@@ -656,7 +650,7 @@ async def button_handler(update, context):
                 "\n¿Quién paga?",
                 reply_markup=InlineKeyboardMarkup(
                     [[InlineKeyboardButton(p, callback_data=f"pagador|{p}")]
-                     for p in get_quien_paga()] + [nav_buttons()]
+                     for p in get_quien_paga()] + [botones_navegacion()]
                 )
             )
             return
@@ -667,7 +661,7 @@ async def button_handler(update, context):
                 "\n¿De quién es el gasto?",
                 reply_markup=InlineKeyboardMarkup(
                     [[InlineKeyboardButton(p, callback_data=f"persona|{p}")]
-                     for p in get_personas_gasto()] + [nav_buttons()]
+                     for p in get_personas_gasto()] + [botones_navegacion()]
                 )
             )
             return
@@ -677,7 +671,7 @@ async def button_handler(update, context):
                 [InlineKeyboardButton("Hoy", callback_data="fecha|hoy"),
                  InlineKeyboardButton("Ayer", callback_data="fecha|ayer")],
                 [InlineKeyboardButton("Otra", callback_data="fecha|otra")],
-                nav_buttons()
+                botones_navegacion()
             ]
     
             await query.edit_message_text(

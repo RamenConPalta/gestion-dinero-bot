@@ -7,7 +7,7 @@ from telegram.ext import (
     CallbackQueryHandler,
 )
 from telegram.ext import MessageHandler, filters
-from datetime import datetime
+from datetime import datetime, timedelta
 from google.oauth2.service_account import Credentials
 import gspread
 
@@ -51,6 +51,16 @@ user_states = {}
 # =========================
 # FUNCIONES DATOS
 # =========================
+
+def get_personas_gasto():
+    valores = listas_sheet.col_values(19)[1:4]  # Columna S (19)
+    return [v for v in valores if v and v != "—"]
+
+
+def get_quien_paga():
+    valores = listas_sheet.col_values(20)[1:4]  # Columna T (20)
+    return [v for v in valores if v and v != "—"]
+
 
 def get_tipos():
     data = listas_sheet.get_all_values()[1:]
@@ -143,56 +153,93 @@ def get_sub3(tipo_sel, categoria_sel, sub1_sel, sub2_sel):
 
     return sorted(sub3_set)
 
-async def recibir_importe(update, context):
+async def recibir_texto(update, context):
     user_id = update.effective_user.id
 
-    # Solo actuar si estamos esperando importe
     if user_id not in user_states:
         return
 
-    if not user_states[user_id].get("esperando_importe"):
+    texto = update.message.text.strip()
+
+    # =========================
+    # FECHA MANUAL
+    # =========================
+
+    if user_states[user_id].get("esperando_fecha_manual"):
+        try:
+            fecha = datetime.strptime(texto, "%d/%m/%Y")
+            user_states[user_id]["fecha"] = fecha.strftime("%d/%m/%Y")
+            user_states[user_id]["esperando_fecha_manual"] = False
+        except:
+            await update.message.reply_text("Formato incorrecto. Usa DD/MM/YYYY")
+            return
+
+        personas = get_personas_gasto()
+
+        keyboard = [
+            [InlineKeyboardButton(p, callback_data=f"persona|{p}")]
+            for p in personas
+        ]
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            f"Fecha: {user_states[user_id]['fecha']} ✅\n\n¿De quién es el gasto?",
+            reply_markup=reply_markup
+        )
         return
 
-    texto = update.message.text
+    # =========================
+    # IMPORTE
+    # =========================
 
-    try:
-        importe = float(texto.replace(",", "."))
-    except:
-        await update.message.reply_text("Escribe un número válido 💰")
-        return
+    if user_states[user_id].get("esperando_importe"):
+        try:
+            importe = float(texto.replace(",", "."))
+        except:
+            await update.message.reply_text("Escribe un número válido 💰")
+            return
 
-    fecha = datetime.now().strftime("%Y-%m-%d")
-    user = update.effective_user.first_name
+        data = user_states[user_id]
 
-    data = user_states[user_id]
+        sheet.append_row([
+            data.get("fecha", ""),
+            data.get("persona", ""),
+            data.get("pagador", ""),
+            data.get("tipo", ""),
+            data.get("categoria", ""),
+            data.get("sub1", ""),
+            data.get("sub2", ""),
+            data.get("sub3", ""),
+            importe
+        ])
 
-    sheet.append_row([
-        fecha,
-        user,
-        data.get("tipo", ""),
-        data.get("categoria", ""),
-        data.get("sub1", ""),
-        data.get("sub2", ""),
-        data.get("sub3", ""),
-        importe
-    ])
+        await update.message.reply_text("Movimiento guardado correctamente ✅")
 
-    await update.message.reply_text("Movimiento guardado correctamente ✅")
-
-    user_states.pop(user_id)
+        user_states.pop(user_id)
 
 # =========================
 # TELEGRAM BOT
 # =========================
 
 async def start(update, context):
+    user_id = update.effective_user.id
+    user_states[user_id] = {}
+
     keyboard = [
-        [InlineKeyboardButton("➕ Añadir registro", callback_data="add")]
+        [
+            InlineKeyboardButton("Hoy", callback_data="fecha|hoy"),
+            InlineKeyboardButton("Ayer", callback_data="fecha|ayer"),
+        ],
+        [
+            InlineKeyboardButton("Otra", callback_data="fecha|otra")
+        ]
     ]
+
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        "💰 Sistema de gestión de dinero",
+        "📅 Selecciona la fecha:",
         reply_markup=reply_markup
     )
 
@@ -205,6 +252,36 @@ async def button_handler(update, context):
     # BOTÓN AÑADIR
     # =========================
 
+    elif query.data.startswith("fecha|"):
+    user_id = query.from_user.id
+    opcion = query.data.split("|")[1]
+
+    if opcion == "hoy":
+        fecha = datetime.now().strftime("%d/%m/%Y")
+    elif opcion == "ayer":
+        fecha = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
+    else:
+        user_states[user_id]["esperando_fecha_manual"] = True
+        await query.edit_message_text("✍️ Escribe la fecha en formato DD/MM/YYYY:")
+        return
+
+    user_states[user_id]["fecha"] = fecha
+
+    # Pasar a siguiente paso
+    personas = get_personas_gasto()
+
+    keyboard = [
+        [InlineKeyboardButton(p, callback_data=f"persona|{p}")]
+        for p in personas
+    ]
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(
+        f"Fecha: {fecha} ✅\n\n¿De quién es el gasto?",
+        reply_markup=reply_markup
+    )
+    
     if query.data == "add":
         user_id = query.from_user.id
         user_states[user_id] = {}
@@ -221,6 +298,51 @@ async def button_handler(update, context):
         await query.edit_message_text(
             "Selecciona TIPO:",
             reply_markup=reply_markup,
+        )
+
+    elif query.data.startswith("persona|"):
+        user_id = query.from_user.id
+        persona = query.data.split("|")[1]
+    
+        user_states[user_id]["persona"] = persona
+    
+        pagadores = get_quien_paga()
+    
+        keyboard = [
+            [InlineKeyboardButton(p, callback_data=f"pagador|{p}")]
+            for p in pagadores
+        ]
+    
+        reply_markup = InlineKeyboardMarkup(keyboard)
+    
+        await query.edit_message_text(
+            f"Fecha: {user_states[user_id]['fecha']} ✅\n"
+            f"Gasto de: {persona} ✅\n\n"
+            "¿Quién paga?",
+            reply_markup=reply_markup
+        )
+
+    elif query.data.startswith("pagador|"):
+        user_id = query.from_user.id
+        pagador = query.data.split("|")[1]
+    
+        user_states[user_id]["pagador"] = pagador
+    
+        tipos = get_tipos()
+    
+        keyboard = [
+            [InlineKeyboardButton(tipo, callback_data=f"tipo|{tipo}")]
+            for tipo in tipos
+        ]
+    
+        reply_markup = InlineKeyboardMarkup(keyboard)
+    
+        await query.edit_message_text(
+            f"Fecha: {user_states[user_id]['fecha']} ✅\n"
+            f"Gasto de: {user_states[user_id]['persona']} ✅\n"
+            f"Paga: {pagador} ✅\n\n"
+            "Selecciona TIPO:",
+            reply_markup=reply_markup
         )
 
     # =========================
@@ -400,7 +522,7 @@ application = ApplicationBuilder().token(TOKEN).build()
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CallbackQueryHandler(button_handler))
 application.add_handler(
-    MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_importe)
+    MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_texto)
 )
 
 # =========================

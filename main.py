@@ -161,26 +161,100 @@ async def start(update, context):
 # =========================
 
 async def mostrar_resumen(query):
+
     registros = sheet.get_all_values()[1:]
-    totales = {"Ramon":0,"Claudia":0,"Común":0}
+
+    estructura = {}
 
     for row in registros:
         try:
             persona = row[1].strip()
-            importe = float(str(row[-1]).replace(",","."))
+            categoria = row[4].strip()
+            sub1 = row[5].strip()
+            sub2 = row[6].strip()
+            importe = float(str(row[-1]).replace(",", "."))
         except:
             continue
 
-        if importe>0 and persona in totales:
-            totales[persona]+=importe
+        if importe <= 0:
+            continue
 
-    mensaje="📈 RESUMEN ACTUAL\n\n"
-    for p,t in totales.items():
-        mensaje+=f"{p}: {round(t,2)}€\n"
+        if persona not in estructura:
+            estructura[persona] = {}
 
-    keyboard=[[InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]]
+        if categoria not in estructura[persona]:
+            estructura[persona][categoria] = {}
 
-    await query.edit_message_text(mensaje,reply_markup=InlineKeyboardMarkup(keyboard))
+        if sub1 not in estructura[persona][categoria]:
+            estructura[persona][categoria][sub1] = {}
+
+        if sub2 == "—" or sub2 == "":
+            sub2 = None
+
+        if sub2:
+            if sub2 not in estructura[persona][categoria][sub1]:
+                estructura[persona][categoria][sub1][sub2] = 0
+            estructura[persona][categoria][sub1][sub2] += importe
+        else:
+            if "_total" not in estructura[persona][categoria][sub1]:
+                estructura[persona][categoria][sub1]["_total"] = 0
+            estructura[persona][categoria][sub1]["_total"] += importe
+
+    mensaje = "📊 RESUMEN DETALLADO\n\n"
+
+    for persona in ["Ramon", "Claudia", "Común"]:
+
+        if persona not in estructura:
+            continue
+
+        mensaje += f"👤 *{persona}*\n"
+
+        for categoria, sub1_data in estructura[persona].items():
+
+            categoria_total = 0
+
+            for sub1, sub2_data in sub1_data.items():
+
+                sub1_total = 0
+
+                for key, value in sub2_data.items():
+                    if key == "_total":
+                        sub1_total += value
+                    else:
+                        sub1_total += value
+
+                if sub1_total > 0:
+                    categoria_total += sub1_total
+
+            if categoria_total == 0:
+                continue
+
+            mensaje += f"  ▪ {categoria}\n"
+
+            for sub1, sub2_data in sub1_data.items():
+
+                sub1_total = 0
+                for key, value in sub2_data.items():
+                    sub1_total += value
+
+                if sub1_total <= 0:
+                    continue
+
+                mensaje += f"      • {sub1} → {round(sub1_total,2)}€\n"
+
+                for key, value in sub2_data.items():
+                    if key != "_total" and value > 0:
+                        mensaje += f"          - {key}: {round(value,2)}€\n"
+
+        mensaje += "\n"
+
+    keyboard = [[InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]]
+
+    await query.edit_message_text(
+        mensaje,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 
 # =========================
 # RECIBIR TEXTO

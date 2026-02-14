@@ -248,265 +248,207 @@ async def button_handler(update, context):
     query = update.callback_query
     await query.answer()
 
-    # =========================
-    # BOTÓN AÑADIR
-    # =========================
-
-    elif query.data.startswith("fecha|"):
     user_id = query.from_user.id
-    opcion = query.data.split("|")[1]
+    data = query.data
 
-    if opcion == "hoy":
-        fecha = datetime.now().strftime("%d/%m/%Y")
-    elif opcion == "ayer":
-        fecha = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
-    else:
-        user_states[user_id]["esperando_fecha_manual"] = True
-        await query.edit_message_text("✍️ Escribe la fecha en formato DD/MM/YYYY:")
-        return
+    # =========================
+    # FECHA
+    # =========================
 
-    user_states[user_id]["fecha"] = fecha
+    if data.startswith("fecha|"):
+        opcion = data.split("|")[1]
 
-    # Pasar a siguiente paso
-    personas = get_personas_gasto()
+        if opcion == "hoy":
+            fecha = datetime.now().strftime("%d/%m/%Y")
+        elif opcion == "ayer":
+            fecha = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
+        else:
+            user_states[user_id]["esperando_fecha_manual"] = True
+            await query.edit_message_text(
+                "✍️ Escribe la fecha en formato DD/MM/YYYY:"
+            )
+            return
 
-    keyboard = [
-        [InlineKeyboardButton(p, callback_data=f"persona|{p}")]
-        for p in personas
-    ]
+        user_states[user_id]["fecha"] = fecha
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await query.edit_message_text(
-        f"Fecha: {fecha} ✅\n\n¿De quién es el gasto?",
-        reply_markup=reply_markup
-    )
-    
-    if query.data == "add":
-        user_id = query.from_user.id
-        user_states[user_id] = {}
-
-        tipos = get_tipos()
+        personas = get_personas_gasto()
 
         keyboard = [
-            [InlineKeyboardButton(tipo, callback_data=f"tipo|{tipo}")]
-            for tipo in tipos
+            [InlineKeyboardButton(p, callback_data=f"persona|{p}")]
+            for p in personas
         ]
 
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
         await query.edit_message_text(
-            "Selecciona TIPO:",
-            reply_markup=reply_markup,
+            f"Fecha: {fecha} ✅\n\n¿De quién es el gasto?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-    elif query.data.startswith("persona|"):
-        user_id = query.from_user.id
-        persona = query.data.split("|")[1]
-    
+    # =========================
+    # PERSONA
+    # =========================
+
+    elif data.startswith("persona|"):
+        persona = data.split("|")[1]
         user_states[user_id]["persona"] = persona
-    
+
         pagadores = get_quien_paga()
-    
+
         keyboard = [
             [InlineKeyboardButton(p, callback_data=f"pagador|{p}")]
             for p in pagadores
         ]
-    
-        reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
         await query.edit_message_text(
             f"Fecha: {user_states[user_id]['fecha']} ✅\n"
             f"Gasto de: {persona} ✅\n\n"
             "¿Quién paga?",
-            reply_markup=reply_markup
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-    elif query.data.startswith("pagador|"):
-        user_id = query.from_user.id
-        pagador = query.data.split("|")[1]
-    
+    # =========================
+    # PAGADOR
+    # =========================
+
+    elif data.startswith("pagador|"):
+        pagador = data.split("|")[1]
         user_states[user_id]["pagador"] = pagador
-    
+
         tipos = get_tipos()
-    
+
         keyboard = [
-            [InlineKeyboardButton(tipo, callback_data=f"tipo|{tipo}")]
-            for tipo in tipos
+            [InlineKeyboardButton(t, callback_data=f"tipo|{t}")]
+            for t in tipos
         ]
-    
-        reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
         await query.edit_message_text(
             f"Fecha: {user_states[user_id]['fecha']} ✅\n"
             f"Gasto de: {user_states[user_id]['persona']} ✅\n"
             f"Paga: {pagador} ✅\n\n"
             "Selecciona TIPO:",
-            reply_markup=reply_markup
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
     # =========================
-    # SELECCIÓN TIPO
+    # TIPO
     # =========================
 
-    elif query.data.startswith("tipo|"):
-        user_id = query.from_user.id
-        tipo = query.data.split("|")[1]
-
+    elif data.startswith("tipo|"):
+        tipo = data.split("|")[1]
         user_states[user_id]["tipo"] = tipo
 
         categorias = get_categorias(tipo)
 
-        if not categorias:
-            await query.edit_message_text(
-                f"Tipo seleccionado: {tipo} ✅\n\nNo hay categorías disponibles."
-            )
-            return
-
         keyboard = [
-            [InlineKeyboardButton(cat, callback_data=f"categoria|{cat}")]
-            for cat in categorias
+            [InlineKeyboardButton(c, callback_data=f"categoria|{c}")]
+            for c in categorias
         ]
 
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
         await query.edit_message_text(
-            f"Tipo seleccionado: {tipo} ✅\n\nSelecciona CATEGORÍA:",
-            reply_markup=reply_markup,
+            f"Tipo: {tipo} ✅\n\nSelecciona CATEGORÍA:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
     # =========================
-    # SELECCIÓN CATEGORÍA
+    # CATEGORIA
     # =========================
 
-    elif query.data.startswith("categoria|"):
-        user_id = query.from_user.id
-        categoria = query.data.split("|")[1]
-    
+    elif data.startswith("categoria|"):
+        categoria = data.split("|")[1]
         user_states[user_id]["categoria"] = categoria
-    
-        tipo = user_states[user_id]["tipo"]
-    
-        sub1_list = get_sub1(tipo, categoria)
 
-        if not sub1_list:
-            await query.edit_message_text(
-                f"Tipo: {tipo} ✅\n"
-                f"Categoría: {categoria} ✅\n\n"
-                "No hay SUB1 disponibles."
-            )
-            return
-    
+        sub1_list = get_sub1(
+            user_states[user_id]["tipo"],
+            categoria
+        )
+
         keyboard = [
             [InlineKeyboardButton(s, callback_data=f"sub1|{s}")]
             for s in sub1_list
         ]
-    
-        reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
         await query.edit_message_text(
-            f"Tipo: {tipo} ✅\n"
-            f"Categoría: {categoria} ✅\n\n"
-            "Selecciona SUB1:",
-            reply_markup=reply_markup,
+            f"Categoría: {categoria} ✅\n\nSelecciona SUB1:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-    elif query.data.startswith("sub1|"):
-        user_id = query.from_user.id
-        sub1 = query.data.split("|")[1]
-    
+    # =========================
+    # SUB1
+    # =========================
+
+    elif data.startswith("sub1|"):
+        sub1 = data.split("|")[1]
         user_states[user_id]["sub1"] = sub1
-    
-        tipo = user_states[user_id]["tipo"]
-        categoria = user_states[user_id]["categoria"]
-    
-        sub2_list = get_sub2(tipo, categoria, sub1)
-    
-        # Si no hay SUB2 → pasamos directamente a importe
+
+        sub2_list = get_sub2(
+            user_states[user_id]["tipo"],
+            user_states[user_id]["categoria"],
+            sub1
+        )
+
         if not sub2_list:
             user_states[user_id]["sub2"] = ""
             user_states[user_id]["sub3"] = ""
             user_states[user_id]["esperando_importe"] = True
 
             await query.edit_message_text(
-                f"Tipo: {tipo} ✅\n"
-                f"Categoría: {categoria} ✅\n"
-                f"SUB1: {sub1} ✅\n\n"
-                "No hay SUB2.\n\n"
                 "💰 Escribe el importe:"
             )
             return
-    
+
         keyboard = [
             [InlineKeyboardButton(s, callback_data=f"sub2|{s}")]
             for s in sub2_list
         ]
-    
-        reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
         await query.edit_message_text(
-            f"Tipo: {tipo} ✅\n"
-            f"Categoría: {categoria} ✅\n"
-            f"SUB1: {sub1} ✅\n\n"
             "Selecciona SUB2:",
-            reply_markup=reply_markup,
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
-        
-    elif query.data.startswith("sub2|"):
-        user_id = query.from_user.id
-        sub2 = query.data.split("|")[1]
-    
+
+    # =========================
+    # SUB2
+    # =========================
+
+    elif data.startswith("sub2|"):
+        sub2 = data.split("|")[1]
         user_states[user_id]["sub2"] = sub2
-    
-        tipo = user_states[user_id]["tipo"]
-        categoria = user_states[user_id]["categoria"]
-        sub1 = user_states[user_id]["sub1"]
-    
-        sub3_list = get_sub3(tipo, categoria, sub1, sub2)
-    
-        # Si no hay SUB3 → pasamos a importe
+
+        sub3_list = get_sub3(
+            user_states[user_id]["tipo"],
+            user_states[user_id]["categoria"],
+            user_states[user_id]["sub1"],
+            sub2
+        )
+
         if not sub3_list:
-            await query.edit_message_text(
-                f"Tipo: {tipo} ✅\n"
-                f"Categoría: {categoria} ✅\n"
-                f"SUB1: {sub1} ✅\n"
-                f"SUB2: {sub2} ✅\n\n"
-                "No hay SUB3.\n"
-                "💰 Escribe el importe:"
-            )
             user_states[user_id]["sub3"] = ""
             user_states[user_id]["esperando_importe"] = True
+
+            await query.edit_message_text(
+                "💰 Escribe el importe:"
+            )
             return
-    
+
         keyboard = [
             [InlineKeyboardButton(s, callback_data=f"sub3|{s}")]
             for s in sub3_list
         ]
 
-        reply_markup = InlineKeyboardMarkup(keyboard)
-    
         await query.edit_message_text(
-            f"Tipo: {tipo} ✅\n"
-            f"Categoría: {categoria} ✅\n"
-            f"SUB1: {sub1} ✅\n"
-            f"SUB2: {sub2} ✅\n\n"
             "Selecciona SUB3:",
-            reply_markup=reply_markup,
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-    elif query.data.startswith("sub3|"):
-        user_id = query.from_user.id
-        sub3 = query.data.split("|")[1]
-    
+    # =========================
+    # SUB3
+    # =========================
+
+    elif data.startswith("sub3|"):
+        sub3 = data.split("|")[1]
         user_states[user_id]["sub3"] = sub3
         user_states[user_id]["esperando_importe"] = True
-    
+
         await query.edit_message_text(
-            f"Tipo: {user_states[user_id]['tipo']} ✅\n"
-            f"Categoría: {user_states[user_id]['categoria']} ✅\n"
-            f"SUB1: {user_states[user_id]['sub1']} ✅\n"
-            f"SUB2: {user_states[user_id]['sub2']} ✅\n"
-            f"SUB3: {sub3} ✅\n\n"
             "💰 Escribe el importe:"
         )
 

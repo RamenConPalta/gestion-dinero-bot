@@ -198,6 +198,7 @@ async def recibir_texto(update, context):
         try:
             fecha=datetime.strptime(texto,"%d/%m/%Y")
             user_states[user_id]["fecha"]=fecha.strftime("%d/%m/%Y")
+            user_states[user_id]["step"] = "fecha"
             user_states[user_id]["esperando_fecha_manual"]=False
         except:
             await update.message.reply_text("❌ Fecha inválida. Usa DD/MM/YYYY")
@@ -310,6 +311,7 @@ async def button_handler(update, context):
             return
 
         user_states[user_id]["fecha"]=fecha
+        user_states[user_id]["step"] = "fecha"
         personas=get_personas_gasto()
 
         keyboard=[[InlineKeyboardButton(p,callback_data=f"persona|{p}")]

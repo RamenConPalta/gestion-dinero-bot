@@ -230,15 +230,34 @@ async def generar_resumen(query, año, mes):
             print("Ignorado por mes:", fecha.month)
             continue
 
-        try:
+       try:
             persona = row[1].strip()
             categoria = row[4].strip()
             sub1 = row[5].strip()
             sub2 = row[6].strip()
-            importe = float(str(row[-1]).replace(",", "."))
+        
+            # ===== LIMPIEZA ROBUSTA IMPORTE =====
+            importe_str = str(row[-1]).strip()
+            print("IMPORTE RAW:", importe_str)
+        
+            importe_str = (
+                importe_str
+                .replace("€", "")
+                .replace(",", ".")
+                .replace(" ", "")
+            )
+        
+            # Dejar solo números y punto
+            importe_str = "".join(c for c in importe_str if c.isdigit() or c == ".")
+        
+            importe = float(importe_str)
+        
+            print("IMPORTE LIMPIO:", importe)
+        
         except Exception as e:
             print("Error leyendo fila:", e)
             continue
+
 
         print("Persona:", persona, 
               "Categoria:", categoria,

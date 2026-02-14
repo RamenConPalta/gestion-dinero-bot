@@ -42,11 +42,14 @@ spreadsheet = client.open(SHEET_NAME)
 sheet = spreadsheet.worksheet("REGISTRO")
 listas_sheet = spreadsheet.worksheet("LISTAS")
 
+
 # =========================
 # USER STATE
 # =========================
 
 user_states = {}
+user_states[user_id]["step"]
+
 
 # =========================
 # FUNCIONES AUXILIARES
@@ -326,6 +329,7 @@ async def button_handler(update, context):
     if data.startswith("persona|"):
         persona = data.split("|")[1]
         user_states[user_id]["persona"] = persona
+        user_states[user_id]["step"] = "persona"
 
         pagadores = get_quien_paga()
 
@@ -349,6 +353,7 @@ async def button_handler(update, context):
     if data.startswith("pagador|"):
         pagador = data.split("|")[1]
         user_states[user_id]["pagador"] = pagador
+        user_states[user_id]["step"] = "pagador"
 
         tipos = get_tipos()
 
@@ -372,6 +377,7 @@ async def button_handler(update, context):
     if data.startswith("tipo|"):
         tipo = data.split("|")[1]
         user_states[user_id]["tipo"] = tipo
+        user_states[user_id]["step"] = "tipo"
 
         categorias = get_categorias(tipo)
 
@@ -395,6 +401,7 @@ async def button_handler(update, context):
     if data.startswith("categoria|"):
         categoria = data.split("|")[1]
         user_states[user_id]["categoria"] = categoria
+        user_states[user_id]["step"] = "categoria"
 
         sub1_list = get_sub1(user_states[user_id]["tipo"], categoria)
 
@@ -418,6 +425,7 @@ async def button_handler(update, context):
     if data.startswith("sub1|"):
         sub1 = data.split("|")[1]
         user_states[user_id]["sub1"] = sub1
+        user_states[user_id]["step"] = "sub1"
 
         sub2_list = get_sub2(
             user_states[user_id]["tipo"],
@@ -466,6 +474,7 @@ async def button_handler(update, context):
     if data.startswith("sub2|"):
         sub2 = data.split("|")[1]
         user_states[user_id]["sub2"] = sub2
+        user_states[user_id]["step"] = "sub2"
 
         sub3_list = get_sub3(
             user_states[user_id]["tipo"],
@@ -514,6 +523,7 @@ async def button_handler(update, context):
     if data.startswith("sub3|"):
         sub3 = data.split("|")[1]
         user_states[user_id]["sub3"] = sub3
+        user_states[user_id]["step"] = "sub3"
 
         keyboard = [[
             InlineKeyboardButton("Sí", callback_data="obs|si"),
@@ -545,21 +555,134 @@ async def button_handler(update, context):
             user_states[user_id]["esperando_importe"] = True
             await query.edit_message_text("💰 Escribe el importe:")
         return
-            # ================= BACK =================
-
-    if data == "back":
-        # Volver al menú principal
-        user_states.pop(user_id, None)
-        await mostrar_menu(query)
-        return
         
     # ================= BACK =================
 
     if data == "back":
-        # Volver al menú principal
-        user_states.pop(user_id, None)
-        await mostrar_menu(query)
-        return
+
+        step = user_states[user_id].get("step")
+
+        # Volver desde persona → fecha
+        if step == "persona":
+            user_states[user_id].pop("persona", None)
+    
+            keyboard = [
+                [InlineKeyboardButton("Hoy", callback_data="fecha|hoy"),
+                 InlineKeyboardButton("Ayer", callback_data="fecha|ayer")],
+                [InlineKeyboardButton("Otra", callback_data="fecha|otra")],
+                nav_buttons()
+            ]
+    
+            await query.edit_message_text(
+                "📅 Selecciona la fecha:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
+    
+        # Volver desde pagador → persona
+        if step == "pagador":
+            user_states[user_id].pop("pagador", None)
+    
+            personas = get_personas_gasto()
+            keyboard = [[InlineKeyboardButton(p, callback_data=f"persona|{p}")]
+                        for p in personas]
+            keyboard.append(nav_buttons())
+    
+            await query.edit_message_text(
+                resumen_parcial(user_states[user_id]) +
+                "\n¿De quién es el gasto?",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
+    
+        # Volver desde tipo → pagador
+        if step == "tipo":
+            user_states[user_id].pop("tipo", None)
+    
+            pagadores = get_quien_paga()
+            keyboard = [[InlineKeyboardButton(p, callback_data=f"pagador|{p}")]
+                        for p in pagadores]
+            keyboard.append(nav_buttons())
+    
+            await query.edit_message_text(
+                resumen_parcial(user_states[user_id]) +
+                "\n¿Quién paga?",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
+    
+        # Volver desde categoria → tipo
+        if step == "categoria":
+            user_states[user_id].pop("categoria", None)
+    
+            tipos = get_tipos()
+            keyboard = [[InlineKeyboardButton(t, callback_data=f"tipo|{t}")]
+                        for t in tipos]
+            keyboard.append(nav_buttons())
+    
+            await query.edit_message_text(
+                resumen_parcial(user_states[user_id]) +
+                "\nSelecciona TIPO:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
+    
+        # Volver desde sub1 → categoria
+        if step == "sub1":
+            user_states[user_id].pop("sub1", None)
+    
+            categorias = get_categorias(user_states[user_id]["tipo"])
+            keyboard = [[InlineKeyboardButton(c, callback_data=f"categoria|{c}")]
+                        for c in categorias]
+            keyboard.append(nav_buttons())
+    
+            await query.edit_message_text(
+                resumen_parcial(user_states[user_id]) +
+                "\nSelecciona CATEGORÍA:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
+    
+        # Volver desde sub2 → sub1
+        if step == "sub2":
+            user_states[user_id].pop("sub2", None)
+    
+            sub1_list = get_sub1(
+                user_states[user_id]["tipo"],
+                user_states[user_id]["categoria"]
+            )
+    
+            keyboard = [[InlineKeyboardButton(s, callback_data=f"sub1|{s}")]
+                        for s in sub1_list]
+            keyboard.append(nav_buttons())
+    
+            await query.edit_message_text(
+                resumen_parcial(user_states[user_id]) +
+                "\nSelecciona SUB1:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
+    
+        # Volver desde sub3 → sub2
+        if step == "sub3":
+            user_states[user_id].pop("sub3", None)
+    
+            sub2_list = get_sub2(
+                user_states[user_id]["tipo"],
+                user_states[user_id]["categoria"],
+                user_states[user_id]["sub1"]
+            )
+    
+            keyboard = [[InlineKeyboardButton(s, callback_data=f"sub2|{s}")]
+                        for s in sub2_list]
+            keyboard.append(nav_buttons())
+    
+            await query.edit_message_text(
+                resumen_parcial(user_states[user_id]) +
+                "\nSelecciona SUB2:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
 
 
 # =========================

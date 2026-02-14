@@ -5,8 +5,9 @@ from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     CallbackQueryHandler,
+    MessageHandler,
+    filters,
 )
-from telegram.ext import MessageHandler, filters
 from datetime import datetime, timedelta
 from google.oauth2.service_account import Credentials
 import gspread
@@ -53,146 +54,68 @@ user_states = {}
 # =========================
 
 def get_personas_gasto():
-    valores = listas_sheet.col_values(19)[1:4]  # Columna S (19)
+    valores = listas_sheet.col_values(19)[1:4]
     return [v for v in valores if v and v != "—"]
-
 
 def get_quien_paga():
-    valores = listas_sheet.col_values(20)[1:4]  # Columna T (20)
+    valores = listas_sheet.col_values(20)[1:4]
     return [v for v in valores if v and v != "—"]
-
 
 def get_tipos():
     data = listas_sheet.get_all_values()[1:]
-    tipos = set()
+    return sorted(set(row[0] for row in data if row[0] and row[0] != "—"))
 
-    for row in data:
-        if row[0] and row[0] != "—":
-            tipos.add(row[0])
-
-    return sorted(tipos)
-
-
-def get_categorias(tipo_seleccionado):
+def get_categorias(tipo):
     data = listas_sheet.get_all_values()[1:]
-    categorias = set()
+    return sorted(set(
+        row[1] for row in data
+        if row[0] == tipo and row[1] and row[1] != "—"
+    ))
 
-    for row in data:
-        tipo = row[0]
-        categoria = row[1]
-
-        if (
-            tipo == tipo_seleccionado
-            and categoria
-            and categoria != "—"
-        ):
-            categorias.add(categoria)
-
-    return sorted(categorias)
-
-def get_sub1(tipo_seleccionado, categoria_seleccionada):
+def get_sub1(tipo, categoria):
     data = listas_sheet.get_all_values()[1:]
-    sub1_set = set()
+    return sorted(set(
+        row[2] for row in data
+        if row[0] == tipo and row[1] == categoria and row[2] and row[2] != "—"
+    ))
 
-    for row in data:
-        tipo = row[0]
-        categoria = row[1]
-        sub1 = row[2]
-
-        if (
-            tipo == tipo_seleccionado
-            and categoria == categoria_seleccionada
-            and sub1
-            and sub1 != "—"
-        ):
-            sub1_set.add(sub1)
-
-    return sorted(sub1_set)
-
-def get_sub2(tipo_sel, categoria_sel, sub1_sel):
+def get_sub2(tipo, categoria, sub1):
     data = listas_sheet.get_all_values()[1:]
-    sub2_set = set()
+    return sorted(set(
+        row[3] for row in data
+        if row[0] == tipo and row[1] == categoria and row[2] == sub1
+        and len(row) > 3 and row[3] and row[3] != "—"
+    ))
 
-    for row in data:
-        tipo = row[0]
-        categoria = row[1]
-        sub1 = row[2]
-        sub2 = row[3] if len(row) > 3 else ""
-
-        if (
-            tipo == tipo_sel
-            and categoria == categoria_sel
-            and sub1 == sub1_sel
-            and sub2
-            and sub2 != "—"
-        ):
-            sub2_set.add(sub2)
-
-    return sorted(sub2_set)
-
-def get_sub3(tipo_sel, categoria_sel, sub1_sel, sub2_sel):
+def get_sub3(tipo, categoria, sub1, sub2):
     data = listas_sheet.get_all_values()[1:]
-    sub3_set = set()
+    return sorted(set(
+        row[4] for row in data
+        if row[0] == tipo and row[1] == categoria and row[2] == sub1
+        and row[3] == sub2 and len(row) > 4 and row[4] and row[4] != "—"
+    ))
 
-    for row in data:
-        tipo = row[0]
-        categoria = row[1]
-        sub1 = row[2]
-        sub2 = row[3] if len(row) > 3 else ""
-        sub3 = row[4] if len(row) > 4 else ""
-
-        if (
-            tipo == tipo_sel
-            and categoria == categoria_sel
-            and sub1 == sub1_sel
-            and sub2 == sub2_sel
-            and sub3
-            and sub3 != "—"
-        ):
-            sub3_set.add(sub3)
-
-    return sorted(sub3_set)
+# =========================
+# RECIBIR TEXTO
+# =========================
 
 async def recibir_texto(update, context):
     user_id = update.effective_user.id
-
     if user_id not in user_states:
         return
 
     texto = update.message.text.strip()
 
-    # =========================
-    # FECHA MANUAL
-    # =========================
+    # OBSERVACIÓN TEXTO
+    if user_states[user_id].get("esperando_observacion_texto"):
+        user_states[user_id]["observacion"] = texto
+        user_states[user_id]["esperando_observacion_texto"] = False
+        user_states[user_id]["esperando_importe"] = True
 
-    if user_states[user_id].get("esperando_fecha_manual"):
-        try:
-            fecha = datetime.strptime(texto, "%d/%m/%Y")
-            user_states[user_id]["fecha"] = fecha.strftime("%d/%m/%Y")
-            user_states[user_id]["esperando_fecha_manual"] = False
-        except:
-            await update.message.reply_text("Formato incorrecto. Usa DD/MM/YYYY")
-            return
-
-        personas = get_personas_gasto()
-
-        keyboard = [
-            [InlineKeyboardButton(p, callback_data=f"persona|{p}")]
-            for p in personas
-        ]
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.message.reply_text(
-            f"Fecha: {user_states[user_id]['fecha']} ✅\n\n¿De quién es el gasto?",
-            reply_markup=reply_markup
-        )
+        await update.message.reply_text("💰 Escribe el importe:")
         return
 
-    # =========================
     # IMPORTE
-    # =========================
-
     if user_states[user_id].get("esperando_importe"):
         try:
             importe = float(texto.replace(",", "."))
@@ -208,41 +131,39 @@ async def recibir_texto(update, context):
             data.get("pagador", ""),
             data.get("tipo", ""),
             data.get("categoria", ""),
-            data.get("sub1", ""),
-            data.get("sub2", ""),
-            data.get("sub3", ""),
+            data.get("sub1", "—"),
+            data.get("sub2", "—"),
+            data.get("sub3", "—"),
+            data.get("observacion", ""),
             importe
         ])
 
         await update.message.reply_text("Movimiento guardado correctamente ✅")
-
         user_states.pop(user_id)
 
 # =========================
-# TELEGRAM BOT
+# START
 # =========================
 
 async def start(update, context):
-    user_id = update.effective_user.id
-    user_states[user_id] = {}
+    user_states[update.effective_user.id] = {}
 
     keyboard = [
         [
             InlineKeyboardButton("Hoy", callback_data="fecha|hoy"),
             InlineKeyboardButton("Ayer", callback_data="fecha|ayer"),
         ],
-        [
-            InlineKeyboardButton("Otra", callback_data="fecha|otra")
-        ]
+        [InlineKeyboardButton("Otra", callback_data="fecha|otra")]
     ]
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
         "📅 Selecciona la fecha:",
-        reply_markup=reply_markup
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+# =========================
+# BOTONES
+# =========================
 
 async def button_handler(update, context):
     query = update.callback_query
@@ -251,9 +172,10 @@ async def button_handler(update, context):
     user_id = query.from_user.id
     data = query.data
 
-    # =========================
-    # FECHA
-    # =========================
+    if user_id not in user_states:
+        user_states[user_id] = {}
+
+    # ================= FECHA =================
 
     if data.startswith("fecha|"):
         opcion = data.split("|")[1]
@@ -264,116 +186,76 @@ async def button_handler(update, context):
             fecha = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
         else:
             user_states[user_id]["esperando_fecha_manual"] = True
-            await query.edit_message_text(
-                "✍️ Escribe la fecha en formato DD/MM/YYYY:"
-            )
+            await query.edit_message_text("✍️ Escribe la fecha DD/MM/YYYY:")
             return
 
         user_states[user_id]["fecha"] = fecha
 
         personas = get_personas_gasto()
-
-        keyboard = [
-            [InlineKeyboardButton(p, callback_data=f"persona|{p}")]
-            for p in personas
-        ]
+        keyboard = [[InlineKeyboardButton(p, callback_data=f"persona|{p}")] for p in personas]
 
         await query.edit_message_text(
             f"Fecha: {fecha} ✅\n\n¿De quién es el gasto?",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-    # =========================
-    # PERSONA
-    # =========================
+    # ================= PERSONA =================
 
     elif data.startswith("persona|"):
         persona = data.split("|")[1]
         user_states[user_id]["persona"] = persona
 
         pagadores = get_quien_paga()
-
-        keyboard = [
-            [InlineKeyboardButton(p, callback_data=f"pagador|{p}")]
-            for p in pagadores
-        ]
+        keyboard = [[InlineKeyboardButton(p, callback_data=f"pagador|{p}")] for p in pagadores]
 
         await query.edit_message_text(
-            f"Fecha: {user_states[user_id]['fecha']} ✅\n"
-            f"Gasto de: {persona} ✅\n\n"
-            "¿Quién paga?",
+            f"Gasto de: {persona} ✅\n\n¿Quién paga?",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-    # =========================
-    # PAGADOR
-    # =========================
+    # ================= PAGADOR =================
 
     elif data.startswith("pagador|"):
         pagador = data.split("|")[1]
         user_states[user_id]["pagador"] = pagador
 
         tipos = get_tipos()
-
-        keyboard = [
-            [InlineKeyboardButton(t, callback_data=f"tipo|{t}")]
-            for t in tipos
-        ]
+        keyboard = [[InlineKeyboardButton(t, callback_data=f"tipo|{t}")] for t in tipos]
 
         await query.edit_message_text(
-            f"Fecha: {user_states[user_id]['fecha']} ✅\n"
-            f"Gasto de: {user_states[user_id]['persona']} ✅\n"
-            f"Paga: {pagador} ✅\n\n"
             "Selecciona TIPO:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-    # =========================
-    # TIPO
-    # =========================
+    # ================= TIPO =================
 
     elif data.startswith("tipo|"):
         tipo = data.split("|")[1]
         user_states[user_id]["tipo"] = tipo
 
         categorias = get_categorias(tipo)
-
-        keyboard = [
-            [InlineKeyboardButton(c, callback_data=f"categoria|{c}")]
-            for c in categorias
-        ]
+        keyboard = [[InlineKeyboardButton(c, callback_data=f"categoria|{c}")] for c in categorias]
 
         await query.edit_message_text(
-            f"Tipo: {tipo} ✅\n\nSelecciona CATEGORÍA:",
+            "Selecciona CATEGORÍA:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-    # =========================
-    # CATEGORIA
-    # =========================
+    # ================= CATEGORIA =================
 
     elif data.startswith("categoria|"):
         categoria = data.split("|")[1]
         user_states[user_id]["categoria"] = categoria
 
-        sub1_list = get_sub1(
-            user_states[user_id]["tipo"],
-            categoria
-        )
-
-        keyboard = [
-            [InlineKeyboardButton(s, callback_data=f"sub1|{s}")]
-            for s in sub1_list
-        ]
+        sub1_list = get_sub1(user_states[user_id]["tipo"], categoria)
+        keyboard = [[InlineKeyboardButton(s, callback_data=f"sub1|{s}")] for s in sub1_list]
 
         await query.edit_message_text(
-            f"Categoría: {categoria} ✅\n\nSelecciona SUB1:",
+            "Selecciona SUB1:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-    # =========================
-    # SUB1
-    # =========================
+    # ================= SUB1 =================
 
     elif data.startswith("sub1|"):
         sub1 = data.split("|")[1]
@@ -386,28 +268,24 @@ async def button_handler(update, context):
         )
 
         if not sub2_list:
-            user_states[user_id]["sub2"] = ""
-            user_states[user_id]["sub3"] = ""
-            user_states[user_id]["esperando_importe"] = True
+            user_states[user_id]["sub2"] = "—"
+            user_states[user_id]["sub3"] = "—"
+
+            keyboard = [[
+                InlineKeyboardButton("Sí", callback_data="obs|si"),
+                InlineKeyboardButton("No", callback_data="obs|no")
+            ]]
 
             await query.edit_message_text(
-                "💰 Escribe el importe:"
+                "¿Quieres añadir una observación?",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return
 
-        keyboard = [
-            [InlineKeyboardButton(s, callback_data=f"sub2|{s}")]
-            for s in sub2_list
-        ]
+        keyboard = [[InlineKeyboardButton(s, callback_data=f"sub2|{s}")] for s in sub2_list]
+        await query.edit_message_text("Selecciona SUB2:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-        await query.edit_message_text(
-            "Selecciona SUB2:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-    # =========================
-    # SUB2
-    # =========================
+    # ================= SUB2 =================
 
     elif data.startswith("sub2|"):
         sub2 = data.split("|")[1]
@@ -421,55 +299,60 @@ async def button_handler(update, context):
         )
 
         if not sub3_list:
-            user_states[user_id]["sub3"] = ""
-            user_states[user_id]["esperando_importe"] = True
+            user_states[user_id]["sub3"] = "—"
+
+            keyboard = [[
+                InlineKeyboardButton("Sí", callback_data="obs|si"),
+                InlineKeyboardButton("No", callback_data="obs|no")
+            ]]
 
             await query.edit_message_text(
-                "💰 Escribe el importe:"
+                "¿Quieres añadir una observación?",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return
 
-        keyboard = [
-            [InlineKeyboardButton(s, callback_data=f"sub3|{s}")]
-            for s in sub3_list
-        ]
+        keyboard = [[InlineKeyboardButton(s, callback_data=f"sub3|{s}")] for s in sub3_list]
+        await query.edit_message_text("Selecciona SUB3:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-        await query.edit_message_text(
-            "Selecciona SUB3:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-    # =========================
-    # SUB3
-    # =========================
+    # ================= SUB3 =================
 
     elif data.startswith("sub3|"):
         sub3 = data.split("|")[1]
         user_states[user_id]["sub3"] = sub3
-        user_states[user_id]["esperando_importe"] = True
+
+        keyboard = [[
+            InlineKeyboardButton("Sí", callback_data="obs|si"),
+            InlineKeyboardButton("No", callback_data="obs|no")
+        ]]
 
         await query.edit_message_text(
-            "💰 Escribe el importe:"
+            "¿Quieres añadir una observación?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
+    # ================= OBS =================
 
+    elif data.startswith("obs|"):
+        opcion = data.split("|")[1]
 
+        if opcion == "si":
+            user_states[user_id]["esperando_observacion_texto"] = True
+            await query.edit_message_text("✍️ Escribe la observación:")
+        else:
+            user_states[user_id]["observacion"] = ""
+            user_states[user_id]["esperando_importe"] = True
+            await query.edit_message_text("💰 Escribe el importe:")
 
 # =========================
-# START APP
+# APP
 # =========================
 
 application = ApplicationBuilder().token(TOKEN).build()
 
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CallbackQueryHandler(button_handler))
-application.add_handler(
-    MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_texto)
-)
-
-# =========================
-# START WEBHOOK
-# =========================
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_texto))
 
 if __name__ == "__main__":
     application.run_webhook(

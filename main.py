@@ -50,6 +50,28 @@ listas_sheet = spreadsheet.worksheet("LISTAS")
 user_states = {}
 
 # =========================
+# UTILIDADES
+# =========================
+
+def resumen_parcial(data):
+    texto = ""
+    campos = ["fecha", "persona", "pagador", "tipo", "categoria", "sub1", "sub2", "sub3"]
+
+    for c in campos:
+        if c in data:
+            texto += f"{c.capitalize()}: {data[c]} ✅\n"
+
+    return texto
+
+
+def botones_nav(extra_buttons):
+    extra_buttons.append([
+        InlineKeyboardButton("⬅ Volver", callback_data="back"),
+        InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")
+    ])
+    return extra_buttons
+
+# =========================
 # FUNCIONES DATOS
 # =========================
 
@@ -104,7 +126,6 @@ async def mostrar_menu(query):
         [InlineKeyboardButton("➕ Añadir registro", callback_data="menu|add")],
         [InlineKeyboardButton("📈 Ver resumen", callback_data="menu|resumen")]
     ]
-
     await query.edit_message_text(
         "📊 Gestión de dinero\n\nSelecciona una opción:",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -112,12 +133,10 @@ async def mostrar_menu(query):
 
 async def start(update, context):
     user_states[update.effective_user.id] = {}
-
     keyboard = [
         [InlineKeyboardButton("➕ Añadir registro", callback_data="menu|add")],
         [InlineKeyboardButton("📈 Ver resumen", callback_data="menu|resumen")]
     ]
-
     await update.message.reply_text(
         "📊 Gestión de dinero\n\nSelecciona una opción:",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -134,7 +153,7 @@ async def mostrar_resumen(query):
 
     for row in registros:
         try:
-            persona = row[1]
+            persona = row[1].strip()
             importe = float(str(row[-1]).replace(",", "."))
         except:
             continue
@@ -143,14 +162,10 @@ async def mostrar_resumen(query):
             totales[persona] += importe
 
     mensaje = "📈 RESUMEN ACTUAL\n\n"
-
     for persona, total in totales.items():
-        if total > 0:
-            mensaje += f"{persona}: {round(total,2)}€\n"
+        mensaje += f"{persona}: {round(total,2)}€\n"
 
-    keyboard = [
-        [InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]
-    ]
+    keyboard = [[InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]]
 
     await query.edit_message_text(
         mensaje,
@@ -163,12 +178,35 @@ async def mostrar_resumen(query):
 
 async def recibir_texto(update, context):
     user_id = update.effective_user.id
-
     if user_id not in user_states:
         return
 
     texto = update.message.text.strip()
 
+    # FECHA MANUAL
+    if user_states[user_id].get("esperando_fecha_manual"):
+        try:
+            fecha = datetime.strptime(texto, "%d/%m/%Y")
+            user_states[user_id]["fecha"] = fecha.strftime("%d/%m/%Y")
+            user_states[user_id]["esperando_fecha_manual"] = False
+        except:
+            await update.message.reply_text("❌ Fecha inválida. Usa DD/MM/YYYY")
+            return
+
+        personas = get_personas_gasto()
+        keyboard = [[InlineKeyboardButton(p, callback_data=f"persona|{p}")]
+                    for p in personas]
+
+        keyboard = botones_nav(keyboard)
+
+        await update.message.reply_text(
+            resumen_parcial(user_states[user_id]) +
+            "\n¿De quién es el gasto?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # OBSERVACION
     if user_states[user_id].get("esperando_observacion_texto"):
         user_states[user_id]["observacion"] = texto
         user_states[user_id]["esperando_observacion_texto"] = False
@@ -176,6 +214,7 @@ async def recibir_texto(update, context):
         await update.message.reply_text("💰 Escribe el importe:")
         return
 
+    # IMPORTE
     if user_states[user_id].get("esperando_importe"):
         try:
             importe = float(texto.replace(",", "."))
@@ -228,6 +267,11 @@ async def button_handler(update, context):
         await mostrar_menu(query)
         return
 
+    # BACK SIMPLE (reinicia menú por ahora)
+    if data == "back":
+        await mostrar_menu(query)
+        return
+
     # MENU
     if data == "menu|add":
         keyboard = [
@@ -235,9 +279,10 @@ async def button_handler(update, context):
                 InlineKeyboardButton("Hoy", callback_data="fecha|hoy"),
                 InlineKeyboardButton("Ayer", callback_data="fecha|ayer"),
             ],
-            [InlineKeyboardButton("Otra", callback_data="fecha|otra")],
-            [InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")]
+            [InlineKeyboardButton("Otra", callback_data="fecha|otra")]
         ]
+
+        keyboard = botones_nav(keyboard)
 
         await query.edit_message_text(
             "📅 Selecciona la fecha:",
@@ -265,11 +310,14 @@ async def button_handler(update, context):
         user_states[user_id]["fecha"] = fecha
 
         personas = get_personas_gasto()
-        keyboard = [[InlineKeyboardButton(p, callback_data=f"persona|{p}")] for p in personas]
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
+        keyboard = [[InlineKeyboardButton(p, callback_data=f"persona|{p}")]
+                    for p in personas]
+
+        keyboard = botones_nav(keyboard)
 
         await query.edit_message_text(
-            "¿De quién es el gasto?",
+            resumen_parcial(user_states[user_id]) +
+            "\n¿De quién es el gasto?",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
@@ -280,172 +328,14 @@ async def button_handler(update, context):
         user_states[user_id]["persona"] = persona
 
         pagadores = get_quien_paga()
-        keyboard = [[InlineKeyboardButton(p, callback_data=f"pagador|{p}")] for p in pagadores]
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
+        keyboard = [[InlineKeyboardButton(p, callback_data=f"pagador|{p}")]
+                    for p in pagadores]
+
+        keyboard = botones_nav(keyboard)
 
         await query.edit_message_text(
-            "¿Quién paga?",
+            resumen_parcial(user_states[user_id]) +
+            "\n¿Quién paga?",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
-
-    # PAGADOR
-    if data.startswith("pagador|"):
-        pagador = data.split("|")[1]
-        user_states[user_id]["pagador"] = pagador
-
-        tipos = get_tipos()
-        keyboard = [[InlineKeyboardButton(t, callback_data=f"tipo|{t}")] for t in tipos]
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-
-        await query.edit_message_text(
-            "Selecciona TIPO:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    # TIPO
-    if data.startswith("tipo|"):
-        tipo = data.split("|")[1]
-        user_states[user_id]["tipo"] = tipo
-
-        categorias = get_categorias(tipo)
-        keyboard = [[InlineKeyboardButton(c, callback_data=f"categoria|{c}")] for c in categorias]
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-
-        await query.edit_message_text(
-            "Selecciona CATEGORÍA:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    # CATEGORIA
-    if data.startswith("categoria|"):
-        categoria = data.split("|")[1]
-        user_states[user_id]["categoria"] = categoria
-
-        sub1_list = get_sub1(user_states[user_id]["tipo"], categoria)
-        keyboard = [[InlineKeyboardButton(s, callback_data=f"sub1|{s}")] for s in sub1_list]
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-
-        await query.edit_message_text(
-            "Selecciona SUB1:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    # SUB1
-    if data.startswith("sub1|"):
-        sub1 = data.split("|")[1]
-        user_states[user_id]["sub1"] = sub1
-
-        sub2_list = get_sub2(user_states[user_id]["tipo"], user_states[user_id]["categoria"], sub1)
-
-        if not sub2_list:
-            user_states[user_id]["sub2"] = "—"
-            user_states[user_id]["sub3"] = "—"
-
-            keyboard = [[
-                InlineKeyboardButton("Sí", callback_data="obs|si"),
-                InlineKeyboardButton("No", callback_data="obs|no")
-            ]]
-            keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-
-            await query.edit_message_text(
-                "¿Quieres añadir una observación?",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            return
-
-        keyboard = [[InlineKeyboardButton(s, callback_data=f"sub2|{s}")] for s in sub2_list]
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-
-        await query.edit_message_text(
-            "Selecciona SUB2:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    # SUB2
-    if data.startswith("sub2|"):
-        sub2 = data.split("|")[1]
-        user_states[user_id]["sub2"] = sub2
-
-        sub3_list = get_sub3(
-            user_states[user_id]["tipo"],
-            user_states[user_id]["categoria"],
-            user_states[user_id]["sub1"],
-            sub2
-        )
-
-        if not sub3_list:
-            user_states[user_id]["sub3"] = "—"
-
-            keyboard = [[
-                InlineKeyboardButton("Sí", callback_data="obs|si"),
-                InlineKeyboardButton("No", callback_data="obs|no")
-            ]]
-            keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-
-            await query.edit_message_text(
-                "¿Quieres añadir una observación?",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            return
-
-        keyboard = [[InlineKeyboardButton(s, callback_data=f"sub3|{s}")] for s in sub3_list]
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-
-        await query.edit_message_text(
-            "Selecciona SUB3:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    # SUB3
-    if data.startswith("sub3|"):
-        sub3 = data.split("|")[1]
-        user_states[user_id]["sub3"] = sub3
-
-        keyboard = [[
-            InlineKeyboardButton("Sí", callback_data="obs|si"),
-            InlineKeyboardButton("No", callback_data="obs|no")
-        ]]
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-
-        await query.edit_message_text(
-            "¿Quieres añadir una observación?",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    # OBSERVACION
-    if data.startswith("obs|"):
-        opcion = data.split("|")[1]
-
-        if opcion == "si":
-            user_states[user_id]["esperando_observacion_texto"] = True
-            await query.edit_message_text("✍️ Escribe la observación:")
-        else:
-            user_states[user_id]["observacion"] = ""
-            user_states[user_id]["esperando_importe"] = True
-            await query.edit_message_text("💰 Escribe el importe:")
-        return
-
-# =========================
-# APP
-# =========================
-
-application = ApplicationBuilder().token(TOKEN).build()
-
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CallbackQueryHandler(button_handler))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_texto))
-
-if __name__ == "__main__":
-    application.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=f"https://gestion-dinero-bot.onrender.com/{TOKEN}",
-        url_path=TOKEN,
-    )

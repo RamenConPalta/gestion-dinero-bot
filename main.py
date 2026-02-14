@@ -94,15 +94,42 @@ def get_sub1(tipo, categoria):
 
 def get_sub2(tipo, categoria, sub1):
     data = listas_sheet.get_all_values()[1:]
-    return sorted(set(row[3] for row in data
-                      if row[0]==tipo and row[1]==categoria and row[2]==sub1
-                      and len(row)>3 and row[3]!="—"))
+    sub2_set = set()
+
+    for row in data:
+        if len(row) < 4:
+            continue
+
+        if (
+            row[0].strip() == tipo and
+            row[1].strip() == categoria and
+            row[2].strip() == sub1 and
+            row[3].strip() and
+            row[3].strip() != "—"
+        ):
+            sub2_set.add(row[3].strip())
+
+    return sorted(sub2_set)
 
 def get_sub3(tipo, categoria, sub1, sub2):
     data = listas_sheet.get_all_values()[1:]
-    return sorted(set(row[4] for row in data
-                      if row[0]==tipo and row[1]==categoria and row[2]==sub1
-                      and row[3]==sub2 and len(row)>4 and row[4]!="—"))
+    sub3_set = set()
+
+    for row in data:
+        if len(row) < 5:
+            continue
+
+        if (
+            row[0].strip() == tipo and
+            row[1].strip() == categoria and
+            row[2].strip() == sub1 and
+            row[3].strip() == sub2 and
+            row[4].strip() and
+            row[4].strip() != "—"
+        ):
+            sub3_set.add(row[4].strip())
+
+    return sorted(sub3_set)
 
 # =========================
 # MENU

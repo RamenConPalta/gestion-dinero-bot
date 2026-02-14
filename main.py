@@ -48,8 +48,6 @@ listas_sheet = spreadsheet.worksheet("LISTAS")
 # =========================
 
 user_states = {}
-user_states[user_id]["step"]
-
 
 # =========================
 # FUNCIONES AUXILIARES

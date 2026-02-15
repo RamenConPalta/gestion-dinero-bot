@@ -183,172 +183,124 @@ async def start(update, context):
 # RESUMEN
 # =========================
 
-async def generar_resumen(query, año, mes, persona_objetivo):
+async def generar_resumen(query, año, mes, persona):
 
-    print("=== INICIO GENERAR RESUMEN ===")
-    print("AÑO:", año, "MES:", mes)
+    print("=== RESUMEN NUEVO ===")
+    print("Persona:", persona, "Año:", año, "Mes:", mes)
 
-    registros = sheet.get_all_values()[1:]
-    print("TOTAL FILAS LEÍDAS:", len(registros))
+    # ================= SELECCIÓN DE HOJAS =================
 
-    totales_categoria = {}
+    if persona == "Común":
+        hoja_datos = spreadsheet.worksheet(f"Cuenta común: gráficos y datos {año}")
+        hoja_objetivos = spreadsheet.worksheet("Cuenta común: gráficos y datos del mes actual")
 
-    # =========================
-    # CALCULAR GASTO REAL
-    # =========================
+    elif persona == "Claudia":
+        hoja_datos = spreadsheet.worksheet(f"Cuenta Claudia: gráficos y datos {año}")
+        hoja_objetivos = spreadsheet.worksheet("Cuenta Claudia: gráficos y datos del mes actual")
 
-    for row in registros:
+    elif persona == "Ramon":
+        hoja_datos = spreadsheet.worksheet(f"Cuenta Ramon: gráficos y datos {año}")
+        hoja_objetivos = spreadsheet.worksheet("Cuenta Ramon: gráficos y datos del mes actual")
 
-        if len(row) < 9:
-            continue
-
-        try:
-            fecha_str = str(row[0]).strip()
-
-            if not fecha_str:
-                continue
-
-            fecha = None
-            for formato in ("%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d"):
-                try:
-                    fecha = datetime.strptime(fecha_str, formato)
-                    break
-                except:
-                    continue
-
-            if not fecha:
-                continue
-
-            if fecha.year != año:
-                continue
-
-            if mes is not None and fecha.month != mes:
-                continue
-
-            persona = row[1].strip()
-
-            if persona != persona_objetivo:
-                continue
-
-            categoria = row[4].strip()
-
-            importe_raw = str(row[-1]).strip()
-
-            importe_limpio = (
-                importe_raw
-                .replace("€", "")
-                .replace(".", "")
-                .replace(",", ".")
-                .replace(" ", "")
-            )
-
-            importe_limpio = "".join(c for c in importe_limpio if c.isdigit() or c == ".")
-
-            if not importe_limpio:
-                continue
-
-            importe = float(importe_limpio)
-
-            if importe <= 0:
-                continue
-
-        except Exception as e:
-            print("Error leyendo fila:", e)
-            continue
-
-        totales_categoria[categoria] = totales_categoria.get(categoria, 0) + importe
-
-    print("TOTALES CALCULADOS:", totales_categoria)
-
-    if not totales_categoria:
-        await query.edit_message_text(
-            f"No hay datos para {mes if mes else 'todo el año'} {año}."
-        )
+    else:
+        await query.edit_message_text("Persona no válida.")
         return
 
-    hoy = datetime.now()
-    es_mes_actual = (mes == hoy.month and año == hoy.year)
+    # ================= LEER DATOS ANUALES =================
 
-    mensaje = f"📊 RESUMEN {persona_objetivo} - {año}"
-    if mes:
-        mensaje += f" - Mes {mes}"
-    mensaje += "\n\n"
+    datos = hoja_datos.get_all_values()[1:]  # quitar encabezado
+    objetivos = hoja_objetivos.get_all_values()[1:]
 
-    # =========================================================
-    # ======= TABLA CON OBJETIVOS (SOLO MES ACTUAL) ==========
-    # =========================================================
+    print("Filas datos:", len(datos))
+    print("Filas objetivos:", len(objetivos))
 
-    if es_mes_actual:
+    if mes is None:
+        col_index = 13  # columna N (total) → índice 13
+    else:
+        col_index = mes  # enero=1 → índice 1 (columna B)
 
-        hoja_obj = spreadsheet.worksheet("Cuenta común: gráficos y datos del mes actual")
-        filas_obj = hoja_obj.get_all_values()
+    tabla = []
 
-        mensaje += "```\n"
-        mensaje += f"{'Categoría':30} {'Objetivo':>12} {'Real':>12}\n"
-        mensaje += "-" * 58 + "\n"
+    for row in datos:
 
-        for row in filas_obj[1:]:
+        if len(row) <= col_index:
+            continue
 
-            try:
-                categoria = row[0].strip()
-                objetivo_raw = row[2].strip()
+        categoria = row[0].strip()
+        real_str = row[col_index].strip()
 
-                if not categoria:
-                    continue
-
-                objetivo_limpio = (
-                    objetivo_raw
-                    .replace("€", "")
-                    .replace(".", "")
+        real_str = (
+            real_str.replace("€", "")
                     .replace(",", ".")
                     .replace(" ", "")
-                )
+        )
 
-                objetivo_limpio = "".join(c for c in objetivo_limpio if c.isdigit() or c == ".")
+        real_str = "".join(c for c in real_str if c.isdigit() or c == ".")
 
-                objetivo = float(objetivo_limpio) if objetivo_limpio else 0
-                real = totales_categoria.get(categoria, 0)
+        real = float(real_str) if real_str else 0
 
-                # 🔥 NUEVA CONDICIÓN: NO MOSTRAR SI AMBOS SON 0
-                if objetivo == 0 and real == 0:
-                    continue
+        # ================= OBJETIVO =================
 
-                mensaje += f"{categoria[:30]:30} {objetivo:>10.2f}€ {real:>10.2f}€\n"
+        objetivo = 0
 
-            except Exception as e:
-                print("Error leyendo objetivos:", e)
-                continue
+        if mes is not None:  # Solo mostramos objetivo en mes concreto
 
-        mensaje += "```"
+            for obj_row in objetivos:
+                if obj_row[0].strip().lower() == categoria.lower():
 
-    # =========================================================
-    # ================= TABLA NORMAL ==========================
-    # =========================================================
+                    obj_str = obj_row[2].strip()  # Columna C
+                    obj_str = (
+                        obj_str.replace("€", "")
+                               .replace(",", ".")
+                               .replace(" ", "")
+                    )
+
+                    obj_str = "".join(c for c in obj_str if c.isdigit() or c == ".")
+                    objetivo = float(obj_str) if obj_str else 0
+                    break
+
+        # ================= FILTRO CEROS =================
+
+        if real == 0 and objetivo == 0:
+            continue
+
+        tabla.append((categoria, objetivo, real))
+
+    if not tabla:
+        await query.edit_message_text("No hay datos para este periodo.")
+        return
+
+    # ================= FORMATEAR TABLA =================
+
+    mensaje = f"📊 {persona} - {año}"
+    if mes:
+        mensaje += f" - Mes {mes}"
     else:
+        mensaje += " - TOTAL"
+    mensaje += "\n\n"
 
-        mensaje += "```\n"
-        mensaje += f"{'Categoría':35} {'Real':>12}\n"
-        mensaje += "-" * 48 + "\n"
+    mensaje += "```\n"
+    mensaje += f"{'Categoría':20} | {'Objetivo':10} | {'Real':10}\n"
+    mensaje += "-"*50 + "\n"
 
-        for categoria, total in totales_categoria.items():
+    for categoria, objetivo, real in tabla:
 
-            if total == 0:
-                continue
+        obj_txt = f"{round(objetivo,2)}€" if mes else "-"
+        real_txt = f"{round(real,2)}€"
 
-            mensaje += f"{categoria[:35]:35} {total:>10.2f}€\n"
+        mensaje += f"{categoria[:20]:20} | {obj_txt:10} | {real_txt:10}\n"
 
-        mensaje += "```"
+    mensaje += "```"
 
     keyboard = [[InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]]
 
     await query.edit_message_text(
         mensaje,
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
     )
 
-    print("=== FIN GENERAR RESUMEN ===")
-
+    print("=== FIN RESUMEN ===")
 
 
 def get_objetivos_mes_actual():

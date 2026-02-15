@@ -426,8 +426,20 @@ async def recibir_texto(update, context):
         await update.message.reply_text(
             f"✅ Añadidos {len(productos)} productos a {supermercado}"
         )
-    
+        
         user_states.pop(user_id)
+        
+        keyboard = [
+            [InlineKeyboardButton("➕ Añadir registro", callback_data="menu|add")],
+            [InlineKeyboardButton("📈 Ver resumen", callback_data="menu|resumen")],
+            [InlineKeyboardButton("🛒 Lista de la compra", callback_data="menu|lista")]
+        ]
+        
+        await update.message.reply_text(
+            "📊 Gestión de dinero\n\nSelecciona una opción:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
         return
 
     # FECHA MANUAL
@@ -1066,11 +1078,11 @@ async def button_handler(update, context):
             if filas > 1:
                 hoja.batch_clear([f"A2:A{filas}"])
     
-        await query.edit_message_text("🗑️ Todas las listas han sido vaciadas (sin borrar encabezados).")
+        await mostrar_menu(query)
         return
 
     if data.startswith("lista_borrar|"):
-    
+
         supermercado = data.split("|")[1]
     
         if supermercado == "todo":
@@ -1082,15 +1094,84 @@ async def button_handler(update, context):
             "Sirena": sheet_sirena
         }[supermercado]
     
-        hoja.batch_clear(["A2:A1000"])
+        productos = hoja.col_values(1)[1:]
+    
+        if not productos:
+            await query.edit_message_text(
+                f"La lista de {supermercado} está vacía.",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("⬅ Volver", callback_data="menu|lista")]]
+                )
+            )
+            return
+    
+        keyboard = []
+    
+        for i, producto in enumerate(productos, start=2):
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"❌ {producto}",
+                    callback_data=f"lista_delete_item|{supermercado}|{i}"
+                )
+            ])
+    
+        keyboard.append([
+            InlineKeyboardButton(
+                "🗑️ Borrar TODO",
+                callback_data=f"lista_delete_all|{supermercado}"
+            )
+        ])
+    
+        keyboard.append([
+            InlineKeyboardButton("⬅ Volver", callback_data="menu|lista")
+        ])
     
         await query.edit_message_text(
-            f"🗑️ Lista de {supermercado} borrada."
+            f"Selecciona qué borrar en {supermercado}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
+
+    # ================= BORRAR ITEM INDIVIDUAL =================
+    
+    if data.startswith("lista_delete_item|"):
+
+        _, supermercado, fila = data.split("|")
+        fila = int(fila)
+    
+        hoja = {
+            "Carrefour": sheet_carrefour,
+            "Mercadona": sheet_mercadona,
+            "Sirena": sheet_sirena
+        }[supermercado]
+    
+        hoja.delete_rows(fila)
+    
+        await query.answer("Producto eliminado ✅")
+        await mostrar_menu(query)
+        return
+
+    # ================= BORRAR TODO SUPERMERCADO =================
+    
+    if data.startswith("lista_delete_all|"):
+
+        _, supermercado = data.split("|")
+    
+        hoja = {
+            "Carrefour": sheet_carrefour,
+            "Mercadona": sheet_mercadona,
+            "Sirena": sheet_sirena
+        }[supermercado]
+    
+        filas_con_datos = len(hoja.col_values(1))
+    
+        if filas_con_datos > 1:
+            hoja.batch_clear([f"A2:A{filas_con_datos}"])
+    
+        await query.answer("Lista borrada ✅")
+        await mostrar_menu(query)
+        return
         
-
-
 
 # =========================
 # REGISTRO DE HANDLERS

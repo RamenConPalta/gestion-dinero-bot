@@ -199,7 +199,7 @@ def get_sub3(tipo, categoria, sub1, sub2):
 async def mostrar_menu(query):
     keyboard = [
         [InlineKeyboardButton("➕ Añadir registro", callback_data="menu|add")],
-        [InlineKeyboardButton("📈 Ver resumen", callback_data="menu|resumen")]
+        [InlineKeyboardButton("📈 Ver resumen", callback_data="menu|resumen")],
         [InlineKeyboardButton("🛒 Lista de la compra", callback_data="menu|lista")]
     ]
     await query.edit_message_text(
@@ -231,11 +231,13 @@ async def mostrar_selector_meses(query):
     )
 
 async def start(update, context):
+
     keyboard = [
         [InlineKeyboardButton("➕ Añadir registro", callback_data="menu|add")],
-        [InlineKeyboardButton("📈 Ver resumen", callback_data="menu|resumen")]
+        [InlineKeyboardButton("📈 Ver resumen", callback_data="menu|resumen")],
         [InlineKeyboardButton("🛒 Lista de la compra", callback_data="menu|lista")]
     ]
+
     await update.message.reply_text(
         "📊 Gestión de dinero\n\nSelecciona una opción:",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -328,19 +330,7 @@ async def generar_resumen(query, año, mes, persona):
         if mes is not None:
 
             # === Barra + color ===
-            if objetivo > 0:
-                porcentaje = real / objetivo
-                bloques = int(min(porcentaje, 1) * 10)
-                barra = "█"*bloques + "░"*(10-bloques)
-
-                if porcentaje <= 0.8:
-                    icono = "🟢"
-                elif porcentaje <= 1:
-                    icono = "🟡"
-                else:
-                    icono = "🔴"
-
-                uso_txt = f"{icono} {int(porcentaje*100)}%"
+            uso_txt = generar_barra(real, objetivo)
             else:
                 uso_txt = "-"
 
@@ -409,6 +399,37 @@ async def recibir_texto(update, context):
 
     texto=update.message.text.strip()
 
+        # ================= LISTA COMPRA =================
+    
+    if user_states[user_id].get("esperando_lista_productos"):
+    
+        supermercado = user_states[user_id]["lista_supermercado"]
+    
+        productos = [p.strip() for p in texto.split(",") if p.strip()]
+    
+        if not productos:
+            await update.message.reply_text("No se detectaron productos.")
+            return
+    
+        hoja = None
+    
+        if supermercado == "Carrefour":
+            hoja = sheet_carrefour
+        elif supermercado == "Mercadona":
+            hoja = sheet_mercadona
+        elif supermercado == "Sirena":
+            hoja = sheet_sirena
+    
+        for producto in productos:
+            hoja.append_row([producto])
+    
+        await update.message.reply_text(
+            f"✅ Añadidos {len(productos)} productos a {supermercado}"
+        )
+    
+        user_states.pop(user_id)
+        return
+
     # FECHA MANUAL
     if user_states[user_id].get("esperando_fecha_manual"):
         try:
@@ -465,37 +486,6 @@ async def recibir_texto(update, context):
 
         await update.message.reply_text("✅ Movimiento guardado correctamente.")
         user_states.pop(user_id)
-
-    # ================= LISTA COMPRA =================
-    
-    if user_states[user_id].get("esperando_lista_productos"):
-    
-        supermercado = user_states[user_id]["lista_supermercado"]
-    
-        productos = [p.strip() for p in texto.split(",") if p.strip()]
-    
-        if not productos:
-            await update.message.reply_text("No se detectaron productos.")
-            return
-    
-        hoja = None
-    
-        if supermercado == "Carrefour":
-            hoja = sheet_carrefour
-        elif supermercado == "Mercadona":
-            hoja = sheet_mercadona
-        elif supermercado == "Sirena":
-            hoja = sheet_sirena
-    
-        for producto in productos:
-            hoja.append_row([producto])
-    
-        await update.message.reply_text(
-            f"✅ Añadidos {len(productos)} productos a {supermercado}"
-        )
-    
-        user_states.pop(user_id)
-        return
 
 # =========================
 # BOTONES
@@ -1089,7 +1079,7 @@ async def button_handler(update, context):
             "Sirena": sheet_sirena
         }[supermercado]
     
-        hoja.clear()
+        hoja.batch_clear(["A2:A1000"])
     
         await query.edit_message_text(
             f"🗑️ Lista de {supermercado} borrada."

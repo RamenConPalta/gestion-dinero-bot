@@ -1104,7 +1104,7 @@ async def button_handler(update, context):
         }
     
         keyboard = []
-    
+
         for i, producto in enumerate(productos, start=2):
             keyboard.append([
                 InlineKeyboardButton(
@@ -1112,10 +1112,19 @@ async def button_handler(update, context):
                     callback_data=f"lista_toggle|{i}"
                 )
             ])
-    
+        
         keyboard.append([
             InlineKeyboardButton("🗑️ Eliminar seleccionados", callback_data="lista_confirm_delete")
         ])
+        
+        # 🔴 NUEVO BOTÓN
+        keyboard.append([
+            InlineKeyboardButton(
+                "🗑️ Borrar TODO este supermercado",
+                callback_data=f"lista_delete_all|{supermercado}"
+            )
+        ])
+        
         keyboard.append([
             InlineKeyboardButton("⬅ Volver", callback_data="menu|lista")
         ])
@@ -1124,6 +1133,27 @@ async def button_handler(update, context):
             f"Selecciona productos a borrar ({supermercado}):",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+        return
+
+        # ================= BORRAR TODO SUPERMERCADO =================
+    
+    if data.startswith("lista_delete_all|"):
+
+        _, supermercado = data.split("|")
+    
+        hoja = {
+            "Carrefour": sheet_carrefour,
+            "Mercadona": sheet_mercadona,
+            "Sirena": sheet_sirena
+        }[supermercado]
+    
+        filas_con_datos = len(hoja.col_values(1))
+    
+        if filas_con_datos > 1:
+            hoja.batch_clear([f"A2:A{filas_con_datos}"])
+    
+        await query.answer("Lista borrada ✅")
+        await mostrar_menu(query)
         return
 
     if data.startswith("lista_toggle|"):
@@ -1197,26 +1227,7 @@ async def button_handler(update, context):
         await mostrar_menu(query)
         return
 
-    # ================= BORRAR TODO SUPERMERCADO =================
-    
-    if data.startswith("lista_delete_all|"):
 
-        _, supermercado = data.split("|")
-    
-        hoja = {
-            "Carrefour": sheet_carrefour,
-            "Mercadona": sheet_mercadona,
-            "Sirena": sheet_sirena
-        }[supermercado]
-    
-        filas_con_datos = len(hoja.col_values(1))
-    
-        if filas_con_datos > 1:
-            hoja.batch_clear([f"A2:A{filas_con_datos}"])
-    
-        await query.answer("Lista borrada ✅")
-        await mostrar_menu(query)
-        return
         
 
 # =========================

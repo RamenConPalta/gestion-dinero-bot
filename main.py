@@ -258,14 +258,10 @@ async def generar_resumen(query, año, mes, persona):
     datos = hoja_datos.get_all_values()[1:]
     objetivos = hoja_objetivos.get_all_values()[1:]
 
-    print("Filas datos:", len(datos))
-    print("Filas objetivos:", len(objetivos))
-
-    # Columna del mes
     if mes is None:
-        col_index = 13  # Columna N (Total)
+        col_index = 13  # Columna N (total)
     else:
-        col_index = mes  # Enero=1 → columna B
+        col_index = mes  # Enero=1 → Columna B
 
     tabla = []
 
@@ -277,16 +273,14 @@ async def generar_resumen(query, año, mes, persona):
         categoria = row[0].strip()
         real = limpiar_importe(row[col_index])
 
-        # ================= OBJETIVO =================
         objetivo = 0
 
         if mes is not None:
             for obj_row in objetivos:
                 if obj_row[0].strip().lower() == categoria.lower():
-                    objetivo = limpiar_importe(obj_row[2])  # Columna C
+                    objetivo = limpiar_importe(obj_row[2])
                     break
 
-        # ================= FILTRO CEROS =================
         if real == 0 and objetivo == 0:
             continue
 
@@ -296,7 +290,7 @@ async def generar_resumen(query, año, mes, persona):
         await query.edit_message_text("No hay datos para este periodo.")
         return
 
-    # ================= FORMATEAR MENSAJE =================
+    # ================= CREAR TABLA =================
 
     mensaje = f"📊 {persona} - {año}"
     if mes:
@@ -305,30 +299,55 @@ async def generar_resumen(query, año, mes, persona):
         mensaje += " - TOTAL"
     mensaje += "\n\n"
 
+    mensaje += "```\n"
+    
+    if mes is not None:
+        mensaje += f"{'Categoría':20} | {'Objetivo':10} | {'Real':10} | {'Uso':15}\n"
+        mensaje += "-"*65 + "\n"
+    else:
+        mensaje += f"{'Categoría':20} | {'Real':10}\n"
+        mensaje += "-"*40 + "\n"
+
     for categoria, objetivo, real in tabla:
 
-        mensaje += f"▪ {categoria}\n"
+        categoria_txt = categoria[:20]
 
         if mes is not None:
-            mensaje += f"Objetivo: {round(objetivo,2)}€\n"
 
-        mensaje += f"Real: {round(real,2)}€\n"
+            # === Barra + color ===
+            if objetivo > 0:
+                porcentaje = real / objetivo
+                bloques = int(min(porcentaje, 1) * 10)
+                barra = "█"*bloques + "░"*(10-bloques)
 
-        # Barra solo si hay objetivo
-        if mes is not None and objetivo > 0:
-            barra = generar_barra(real, objetivo)
-            mensaje += f"{barra}\n"
+                if porcentaje <= 0.8:
+                    icono = "🟢"
+                elif porcentaje <= 1:
+                    icono = "🟡"
+                else:
+                    icono = "🔴"
 
-        mensaje += "\n"
+                uso_txt = f"{icono} {int(porcentaje*100)}%"
+            else:
+                uso_txt = "-"
+
+            mensaje += f"{categoria_txt:20} | {round(objetivo,2):10} | {round(real,2):10} | {uso_txt:15}\n"
+
+        else:
+            mensaje += f"{categoria_txt:20} | {round(real,2):10}\n"
+
+    mensaje += "```"
 
     keyboard = [[InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]]
 
     await query.edit_message_text(
         mensaje,
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
     )
 
     print("=== FIN RESUMEN ===")
+
 
 
 def get_objetivos_mes_actual():

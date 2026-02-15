@@ -18,6 +18,7 @@ import gspread
 
 TOKEN = os.environ.get("BOT_TOKEN")
 SHEET_NAME = os.environ.get("SPREADSHEET_NAME")
+SHEET_NAME_LISTA_COMPRA = os.environ.get("SPREADSHEET_NAME_LISTA_COMPRA")
 PORT = int(os.environ.get("PORT", 10000))
 
 # =========================
@@ -41,6 +42,16 @@ client = gspread.authorize(credentials)
 spreadsheet = client.open(SHEET_NAME)
 sheet = spreadsheet.worksheet("REGISTRO")
 listas_sheet = spreadsheet.worksheet("LISTAS")
+
+# =========================
+# GOOGLE SHEETS LISTA COMPRA
+# =========================
+
+lista_spreadsheet = client.open(SHEET_NAME_LISTA_COMPRA)
+
+sheet_carrefour = lista_spreadsheet.worksheet("Carrefour")
+sheet_mercadona = lista_spreadsheet.worksheet("Mercadona")
+sheet_sirena = lista_spreadsheet.worksheet("Sirena")
 
 
 # =========================
@@ -189,6 +200,7 @@ async def mostrar_menu(query):
     keyboard = [
         [InlineKeyboardButton("➕ Añadir registro", callback_data="menu|add")],
         [InlineKeyboardButton("📈 Ver resumen", callback_data="menu|resumen")]
+        [InlineKeyboardButton("🛒 Lista de la compra", callback_data="menu|lista")]
     ]
     await query.edit_message_text(
         "📊 Gestión de dinero\n\nSelecciona una opción:",
@@ -222,6 +234,7 @@ async def start(update, context):
     keyboard = [
         [InlineKeyboardButton("➕ Añadir registro", callback_data="menu|add")],
         [InlineKeyboardButton("📈 Ver resumen", callback_data="menu|resumen")]
+        [InlineKeyboardButton("🛒 Lista de la compra", callback_data="menu|lista")]
     ]
     await update.message.reply_text(
         "📊 Gestión de dinero\n\nSelecciona una opción:",
@@ -452,6 +465,37 @@ async def recibir_texto(update, context):
 
         await update.message.reply_text("✅ Movimiento guardado correctamente.")
         user_states.pop(user_id)
+
+    # ================= LISTA COMPRA =================
+    
+    if user_states[user_id].get("esperando_lista_productos"):
+    
+        supermercado = user_states[user_id]["lista_supermercado"]
+    
+        productos = [p.strip() for p in texto.split(",") if p.strip()]
+    
+        if not productos:
+            await update.message.reply_text("No se detectaron productos.")
+            return
+    
+        hoja = None
+    
+        if supermercado == "Carrefour":
+            hoja = sheet_carrefour
+        elif supermercado == "Mercadona":
+            hoja = sheet_mercadona
+        elif supermercado == "Sirena":
+            hoja = sheet_sirena
+    
+        for producto in productos:
+            hoja.append_row([producto])
+    
+        await update.message.reply_text(
+            f"✅ Añadidos {len(productos)} productos a {supermercado}"
+        )
+    
+        user_states.pop(user_id)
+        return
 
 # =========================
 # BOTONES
@@ -930,6 +974,130 @@ async def button_handler(update, context):
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return
+
+    # ================= MENU LISTA =================
+    
+    if data == "menu|lista":
+    
+        keyboard = [
+            [InlineKeyboardButton("➕ Añadir", callback_data="lista|add")],
+            [InlineKeyboardButton("👁️ Ver", callback_data="lista|ver")],
+            [InlineKeyboardButton("❌ Borrar", callback_data="lista|borrar")],
+            [InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]
+        ]
+    
+        await query.edit_message_text(
+            "🛒 Lista de la compra",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    if data == "lista|add":
+    
+        keyboard = [
+            [InlineKeyboardButton("Carrefour", callback_data="lista_add|Carrefour")],
+            [InlineKeyboardButton("Mercadona", callback_data="lista_add|Mercadona")],
+            [InlineKeyboardButton("Sirena", callback_data="lista_add|Sirena")],
+            [InlineKeyboardButton("⬅ Volver", callback_data="menu|lista")]
+        ]
+    
+        await query.edit_message_text(
+            "Selecciona supermercado:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    if data.startswith("lista_add|"):
+    
+        supermercado = data.split("|")[1]
+    
+        user_states[user_id] = {
+            "lista_supermercado": supermercado,
+            "esperando_lista_productos": True
+        }
+    
+        await query.edit_message_text(
+            f"Escribe los productos separados por coma.\nEjemplo:\nLeche, Pan, Huevos\n\nSupermercado: {supermercado}"
+        )
+        return
+
+    if data == "lista|ver":
+    
+        mensaje = "🛒 LISTA DE LA COMPRA\n\n"
+    
+        for nombre, hoja in [
+            ("Carrefour", sheet_carrefour),
+            ("Mercadona", sheet_mercadona),
+            ("Sirena", sheet_sirena)
+        ]:
+    
+            productos = hoja.col_values(1)[1:]
+    
+            mensaje += f"📍 {nombre}\n"
+    
+            if productos:
+                for p in productos:
+                    mensaje += f"  • {p}\n"
+            else:
+                mensaje += "  (Vacío)\n"
+    
+            mensaje += "\n"
+    
+        keyboard = [[InlineKeyboardButton("⬅ Volver", callback_data="menu|lista")]]
+    
+        await query.edit_message_text(
+            mensaje,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    if data == "lista|borrar":
+    
+        keyboard = [
+            [InlineKeyboardButton("Carrefour", callback_data="lista_borrar|Carrefour")],
+            [InlineKeyboardButton("Mercadona", callback_data="lista_borrar|Mercadona")],
+            [InlineKeyboardButton("Sirena", callback_data="lista_borrar|Sirena")],
+            [InlineKeyboardButton("🗑️ Borrar TODO", callback_data="lista_borrar|todo")],
+            [InlineKeyboardButton("⬅ Volver", callback_data="menu|lista")]
+        ]
+    
+        await query.edit_message_text(
+            "Selecciona qué quieres borrar:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    if data == "lista_borrar|todo":
+    
+        sheet_carrefour.clear()
+        sheet_mercadona.clear()
+        sheet_sirena.clear()
+    
+        await query.edit_message_text("🗑️ Todas las listas han sido borradas.")
+        return
+
+    if data.startswith("lista_borrar|"):
+    
+        supermercado = data.split("|")[1]
+    
+        if supermercado == "todo":
+            return
+    
+        hoja = {
+            "Carrefour": sheet_carrefour,
+            "Mercadona": sheet_mercadona,
+            "Sirena": sheet_sirena
+        }[supermercado]
+    
+        hoja.clear()
+    
+        await query.edit_message_text(
+            f"🗑️ Lista de {supermercado} borrada."
+        )
+        return
+        
+
+
 
 # =========================
 # REGISTRO DE HANDLERS

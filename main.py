@@ -326,23 +326,23 @@ async def generar_resumen(query, año, mes, persona):
     for categoria, objetivo, real in tabla:
 
         categoria_txt = categoria[:20]
-
+    
         if mes is not None:
-
-            # === Barra + color ===
-            uso_txt = generar_barra(real, objetivo)
+    
+            if objetivo > 0:
+                uso_txt = generar_barra(real, objetivo)
             else:
                 uso_txt = "-"
-
+    
             mensaje += f"{categoria_txt:20} | {round(objetivo,2):10} | {round(real,2):10} | {uso_txt:15}\n"
-
+    
         else:
             mensaje += f"{categoria_txt:20} | {round(real,2):10}\n"
-
+    
     mensaje += "```"
-
+    
     keyboard = [[InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]]
-
+    
     await query.edit_message_text(
         mensaje,
         reply_markup=InlineKeyboardMarkup(keyboard),

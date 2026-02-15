@@ -88,6 +88,34 @@ def limpiar_importe(valor):
 
     return float(valor)
 
+def generar_barra(real, objetivo, largo=10):
+
+    if objetivo <= 0:
+        return ""
+
+    porcentaje = real / objetivo
+    porcentaje_mostrar = round(porcentaje * 100)
+
+    bloques_llenos = int(min(porcentaje, 1) * largo)
+    bloques_vacios = largo - bloques_llenos
+
+    barra = "█" * bloques_llenos + "░" * bloques_vacios
+
+    # Colores por porcentaje
+    if porcentaje <= 0.8:
+        color = "🟢"
+    elif porcentaje <= 1:
+        color = "🟡"
+    else:
+        color = "🔴"
+
+    texto = f"{color} {barra} {porcentaje_mostrar}%"
+
+    if porcentaje > 1:
+        texto += " ⚠️"
+
+    return texto
+
 # =========================
 # FUNCIONES DATOS
 # =========================
@@ -227,18 +255,17 @@ async def generar_resumen(query, año, mes, persona):
         await query.edit_message_text("Persona no válida.")
         return
 
-    # ================= LEER DATOS ANUALES =================
-
-    datos = hoja_datos.get_all_values()[1:]  # quitar encabezado
+    datos = hoja_datos.get_all_values()[1:]
     objetivos = hoja_objetivos.get_all_values()[1:]
 
     print("Filas datos:", len(datos))
     print("Filas objetivos:", len(objetivos))
 
+    # Columna del mes
     if mes is None:
-        col_index = 13  # columna N (total) → índice 13
+        col_index = 13  # Columna N (Total)
     else:
-        col_index = mes  # enero=1 → índice 1 (columna B)
+        col_index = mes  # Enero=1 → columna B
 
     tabla = []
 
@@ -248,25 +275,18 @@ async def generar_resumen(query, año, mes, persona):
             continue
 
         categoria = row[0].strip()
-        real_str = row[col_index].strip()
-
         real = limpiar_importe(row[col_index])
 
         # ================= OBJETIVO =================
-
         objetivo = 0
 
-        if mes is not None:  # Solo mostramos objetivo en mes concreto
-
+        if mes is not None:
             for obj_row in objetivos:
                 if obj_row[0].strip().lower() == categoria.lower():
-
-                    obj_str = obj_row[2].strip()  # Columna C
-                    objetivo = limpiar_importe(obj_row[2])
+                    objetivo = limpiar_importe(obj_row[2])  # Columna C
                     break
 
         # ================= FILTRO CEROS =================
-
         if real == 0 and objetivo == 0:
             continue
 
@@ -276,7 +296,7 @@ async def generar_resumen(query, año, mes, persona):
         await query.edit_message_text("No hay datos para este periodo.")
         return
 
-    # ================= FORMATEAR TABLA =================
+    # ================= FORMATEAR MENSAJE =================
 
     mensaje = f"📊 {persona} - {año}"
     if mes:
@@ -285,25 +305,27 @@ async def generar_resumen(query, año, mes, persona):
         mensaje += " - TOTAL"
     mensaje += "\n\n"
 
-    mensaje += "```\n"
-    mensaje += f"{'Categoría':20} | {'Objetivo':10} | {'Real':10}\n"
-    mensaje += "-"*50 + "\n"
-
     for categoria, objetivo, real in tabla:
 
-        obj_txt = f"{round(objetivo,2)}€" if mes else "-"
-        real_txt = f"{round(real,2)}€"
+        mensaje += f"▪ {categoria}\n"
 
-        mensaje += f"{categoria[:20]:20} | {obj_txt:10} | {real_txt:10}\n"
+        if mes is not None:
+            mensaje += f"Objetivo: {round(objetivo,2)}€\n"
 
-    mensaje += "```"
+        mensaje += f"Real: {round(real,2)}€\n"
+
+        # Barra solo si hay objetivo
+        if mes is not None and objetivo > 0:
+            barra = generar_barra(real, objetivo)
+            mensaje += f"{barra}\n"
+
+        mensaje += "\n"
 
     keyboard = [[InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]]
 
     await query.edit_message_text(
         mensaje,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
     print("=== FIN RESUMEN ===")

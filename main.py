@@ -67,6 +67,27 @@ def botones_navegacion():
         InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")
     ]
 
+def limpiar_importe(valor):
+    valor = str(valor).strip()
+    valor = valor.replace("€", "").replace(" ", "")
+
+    # Caso europeo típico: 1.550,00
+    if "," in valor and "." in valor:
+        valor = valor.replace(".", "")  # quitar separador miles
+        valor = valor.replace(",", ".") # decimal correcto
+
+    # Caso solo coma decimal: 150,50
+    elif "," in valor:
+        valor = valor.replace(",", ".")
+
+    # Quitar cualquier cosa rara
+    valor = "".join(c for c in valor if c.isdigit() or c == ".")
+
+    if valor == "":
+        return 0
+
+    return float(valor)
+
 # =========================
 # FUNCIONES DATOS
 # =========================
@@ -229,15 +250,7 @@ async def generar_resumen(query, año, mes, persona):
         categoria = row[0].strip()
         real_str = row[col_index].strip()
 
-        real_str = (
-            real_str.replace("€", "")
-                    .replace(",", ".")
-                    .replace(" ", "")
-        )
-
-        real_str = "".join(c for c in real_str if c.isdigit() or c == ".")
-
-        real = float(real_str) if real_str else 0
+        real = limpiar_importe(row[col_index])
 
         # ================= OBJETIVO =================
 
@@ -249,14 +262,7 @@ async def generar_resumen(query, año, mes, persona):
                 if obj_row[0].strip().lower() == categoria.lower():
 
                     obj_str = obj_row[2].strip()  # Columna C
-                    obj_str = (
-                        obj_str.replace("€", "")
-                               .replace(",", ".")
-                               .replace(" ", "")
-                    )
-
-                    obj_str = "".join(c for c in obj_str if c.isdigit() or c == ".")
-                    objetivo = float(obj_str) if obj_str else 0
+                    objetivo = limpiar_importe(obj_row[2])
                     break
 
         # ================= FILTRO CEROS =================

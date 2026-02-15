@@ -1058,12 +1058,15 @@ async def button_handler(update, context):
         return
 
     if data == "lista_borrar|todo":
+
+        for hoja in [sheet_carrefour, sheet_mercadona, sheet_sirena]:
     
-        sheet_carrefour.clear()
-        sheet_mercadona.clear()
-        sheet_sirena.clear()
+            filas = hoja.row_count
     
-        await query.edit_message_text("🗑️ Todas las listas han sido borradas.")
+            if filas > 1:
+                hoja.batch_clear([f"A2:A{filas}"])
+    
+        await query.edit_message_text("🗑️ Todas las listas han sido vaciadas (sin borrar encabezados).")
         return
 
     if data.startswith("lista_borrar|"):

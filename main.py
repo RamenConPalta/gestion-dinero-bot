@@ -183,7 +183,7 @@ async def start(update, context):
 # RESUMEN
 # =========================
 
-async def generar_resumen(query, año, mes):
+async def generar_resumen(query, año, mes, persona_objetivo):
 
     print("=== INICIO GENERAR RESUMEN ===")
     print("AÑO:", año, "MES:", mes)
@@ -191,11 +191,11 @@ async def generar_resumen(query, año, mes):
     registros = sheet.get_all_values()[1:]
     print("TOTAL FILAS LEÍDAS:", len(registros))
 
-    # =========================
-    # ACUMULAR GASTO REAL
-    # =========================
-
     totales_categoria = {}
+
+    # =========================
+    # CALCULAR GASTO REAL
+    # =========================
 
     for row in registros:
 
@@ -203,7 +203,6 @@ async def generar_resumen(query, año, mes):
             continue
 
         try:
-            # -------- FECHA --------
             fecha_str = str(row[0]).strip()
 
             if not fecha_str:
@@ -220,14 +219,17 @@ async def generar_resumen(query, año, mes):
             if not fecha:
                 continue
 
-            # -------- FILTROS --------
             if fecha.year != año:
                 continue
 
             if mes is not None and fecha.month != mes:
                 continue
 
-            # -------- CAMPOS --------
+            persona = row[1].strip()
+
+            if persona != persona_objetivo:
+                continue
+
             categoria = row[4].strip()
 
             importe_raw = str(row[-1]).strip()
@@ -264,16 +266,10 @@ async def generar_resumen(query, año, mes):
         )
         return
 
-    # =========================
-    # DETECTAR MES ACTUAL
-    # =========================
-
     hoy = datetime.now()
     es_mes_actual = (mes == hoy.month and año == hoy.year)
 
-    print("¿Es mes actual?:", es_mes_actual)
-
-    mensaje = f"📊 RESUMEN {año}"
+    mensaje = f"📊 RESUMEN {persona_objetivo} - {año}"
     if mes:
         mensaje += f" - Mes {mes}"
     mensaje += "\n\n"
@@ -295,7 +291,7 @@ async def generar_resumen(query, año, mes):
 
             try:
                 categoria = row[0].strip()
-                objetivo_raw = row[2].strip()  # Columna C (Objetivo)
+                objetivo_raw = row[2].strip()
 
                 if not categoria:
                     continue
@@ -311,8 +307,11 @@ async def generar_resumen(query, año, mes):
                 objetivo_limpio = "".join(c for c in objetivo_limpio if c.isdigit() or c == ".")
 
                 objetivo = float(objetivo_limpio) if objetivo_limpio else 0
-
                 real = totales_categoria.get(categoria, 0)
+
+                # 🔥 NUEVA CONDICIÓN: NO MOSTRAR SI AMBOS SON 0
+                if objetivo == 0 and real == 0:
+                    continue
 
                 mensaje += f"{categoria[:30]:30} {objetivo:>10.2f}€ {real:>10.2f}€\n"
 
@@ -332,6 +331,10 @@ async def generar_resumen(query, año, mes):
         mensaje += "-" * 48 + "\n"
 
         for categoria, total in totales_categoria.items():
+
+            if total == 0:
+                continue
+
             mensaje += f"{categoria[:35]:35} {total:>10.2f}€\n"
 
         mensaje += "```"
@@ -503,13 +506,51 @@ async def button_handler(update, context):
 
     if data.startswith("resumen_mes|"):
         _, año, mes = data.split("|")
-        await generar_resumen(query, int(año), int(mes))
-        return
+
+        keyboard = [
+            [InlineKeyboardButton("Ramon", callback_data=f"resumen_final|{año}|{mes}|Ramon")],
+            [InlineKeyboardButton("Claudia", callback_data=f"resumen_final|{año}|{mes}|Claudia")],
+            [InlineKeyboardButton("Común", callback_data=f"resumen_final|{año}|{mes}|Común")],
+            [InlineKeyboardButton("⬅ Volver", callback_data="menu|resumen")]
+        ]
     
+        await query.edit_message_text(
+            "👤 ¿De quién quieres ver el resumen?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+
     if data.startswith("resumen_año|"):
         _, año = data.split("|")
-        await generar_resumen(query, int(año), None)
+    
+        keyboard = [
+            [InlineKeyboardButton("Ramon", callback_data=f"resumen_final|{año}|0|Ramon")],
+            [InlineKeyboardButton("Claudia", callback_data=f"resumen_final|{año}|0|Claudia")],
+            [InlineKeyboardButton("Común", callback_data=f"resumen_final|{año}|0|Común")],
+            [InlineKeyboardButton("⬅ Volver", callback_data="menu|resumen")]
+        ]
+    
+        await query.edit_message_text(
+            "👤 ¿De quién quieres ver el resumen?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
         return
+
+
+    # ================= RESUMEN FINAL =================
+
+    if data.startswith("resumen_final|"):
+        _, año, mes, persona = data.split("|")
+    
+        mes = int(mes)
+        if mes == 0:
+            mes = None
+    
+        await generar_resumen(query, int(año), mes, persona)
+        return
+
+
 
     # FECHA
     if data.startswith("fecha|"):

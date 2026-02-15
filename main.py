@@ -191,7 +191,11 @@ async def generar_resumen(query, año, mes):
     registros = sheet.get_all_values()[1:]
     print("TOTAL FILAS LEÍDAS:", len(registros))
 
-    estructura = {}
+    # =========================
+    # ACUMULAR GASTO REAL
+    # =========================
+
+    totales_categoria = {}
 
     for row in registros:
 
@@ -199,11 +203,8 @@ async def generar_resumen(query, año, mes):
             continue
 
         try:
-            # ================= FECHA =================
-            fecha_raw = row[0]
-            fecha_str = str(fecha_raw).strip()
-
-            print("FECHA RAW:", fecha_str)
+            # -------- FECHA --------
+            fecha_str = str(row[0]).strip()
 
             if not fecha_str:
                 continue
@@ -212,46 +213,39 @@ async def generar_resumen(query, año, mes):
             for formato in ("%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d"):
                 try:
                     fecha = datetime.strptime(fecha_str, formato)
-                    print("Fecha parseada correctamente:", fecha)
                     break
                 except:
                     continue
 
             if not fecha:
-                print("No se pudo parsear la fecha")
                 continue
 
-            # ================= FILTROS =================
+            # -------- FILTROS --------
             if fecha.year != año:
                 continue
 
             if mes is not None and fecha.month != mes:
                 continue
 
-            # ================= CAMPOS =================
-            persona = row[1].strip()
+            # -------- CAMPOS --------
             categoria = row[4].strip()
-            sub1 = row[5].strip()
-            sub2 = row[6].strip()
 
-            # ================= LIMPIEZA IMPORTE =================
-            importe_str = str(row[-1]).strip()
-            print("IMPORTE RAW:", importe_str)
+            importe_raw = str(row[-1]).strip()
 
-            importe_str = (
-                importe_str
+            importe_limpio = (
+                importe_raw
                 .replace("€", "")
+                .replace(".", "")
                 .replace(",", ".")
                 .replace(" ", "")
             )
 
-            importe_str = "".join(c for c in importe_str if c.isdigit() or c == ".")
+            importe_limpio = "".join(c for c in importe_limpio if c.isdigit() or c == ".")
 
-            if not importe_str:
+            if not importe_limpio:
                 continue
 
-            importe = float(importe_str)
-            print("IMPORTE LIMPIO:", importe)
+            importe = float(importe_limpio)
 
             if importe <= 0:
                 continue
@@ -260,67 +254,131 @@ async def generar_resumen(query, año, mes):
             print("Error leyendo fila:", e)
             continue
 
-        # ================= CONSTRUCCIÓN ESTRUCTURA =================
-        estructura.setdefault(persona, {})
-        estructura[persona].setdefault(categoria, {})
-        estructura[persona][categoria].setdefault(sub1, {})
+        totales_categoria[categoria] = totales_categoria.get(categoria, 0) + importe
 
-        if sub2 in ("—", ""):
-            sub2 = "_total"
+    print("TOTALES CALCULADOS:", totales_categoria)
 
-        estructura[persona][categoria][sub1][sub2] = \
-            estructura[persona][categoria][sub1].get(sub2, 0) + importe
-
-    print("ESTRUCTURA FINAL:", estructura)
-
-    # ================= SI NO HAY DATOS =================
-    if not estructura:
+    if not totales_categoria:
         await query.edit_message_text(
             f"No hay datos para {mes if mes else 'todo el año'} {año}."
         )
-        print("No hay datos encontrados.")
         return
 
-    # ================= CREAR MENSAJE =================
+    # =========================
+    # DETECTAR MES ACTUAL
+    # =========================
+
+    hoy = datetime.now()
+    es_mes_actual = (mes == hoy.month and año == hoy.year)
+
+    print("¿Es mes actual?:", es_mes_actual)
+
     mensaje = f"📊 RESUMEN {año}"
     if mes:
         mensaje += f" - Mes {mes}"
     mensaje += "\n\n"
 
-    for persona in ["Ramon", "Claudia", "Común"]:
+    # =========================================================
+    # ======= TABLA CON OBJETIVOS (SOLO MES ACTUAL) ==========
+    # =========================================================
 
-        if persona not in estructura:
-            continue
+    if es_mes_actual:
 
-        mensaje += f"👤 {persona}\n"
+        hoja_obj = spreadsheet.worksheet("Cuenta común: gráficos y datos del mes actual")
+        filas_obj = hoja_obj.get_all_values()
 
-        for categoria, sub1_data in estructura[persona].items():
+        mensaje += "```\n"
+        mensaje += f"{'Categoría':30} {'Objetivo':>12} {'Real':>12}\n"
+        mensaje += "-" * 58 + "\n"
 
-            mensaje += f"  ▪ {categoria}\n"
+        for row in filas_obj[1:]:
 
-            for sub1, sub2_data in sub1_data.items():
+            try:
+                categoria = row[0].strip()
+                objetivo_raw = row[2].strip()  # Columna C (Objetivo)
 
-                total_sub1 = sum(sub2_data.values())
-
-                if total_sub1 <= 0:
+                if not categoria:
                     continue
 
-                mensaje += f"      • {sub1} → {round(total_sub1,2)}€\n"
+                objetivo_limpio = (
+                    objetivo_raw
+                    .replace("€", "")
+                    .replace(".", "")
+                    .replace(",", ".")
+                    .replace(" ", "")
+                )
 
-                for key, value in sub2_data.items():
-                    if key != "_total" and value > 0:
-                        mensaje += f"          - {key}: {round(value,2)}€\n"
+                objetivo_limpio = "".join(c for c in objetivo_limpio if c.isdigit() or c == ".")
 
-        mensaje += "\n"
+                objetivo = float(objetivo_limpio) if objetivo_limpio else 0
+
+                real = totales_categoria.get(categoria, 0)
+
+                mensaje += f"{categoria[:30]:30} {objetivo:>10.2f}€ {real:>10.2f}€\n"
+
+            except Exception as e:
+                print("Error leyendo objetivos:", e)
+                continue
+
+        mensaje += "```"
+
+    # =========================================================
+    # ================= TABLA NORMAL ==========================
+    # =========================================================
+    else:
+
+        mensaje += "```\n"
+        mensaje += f"{'Categoría':35} {'Real':>12}\n"
+        mensaje += "-" * 48 + "\n"
+
+        for categoria, total in totales_categoria.items():
+            mensaje += f"{categoria[:35]:35} {total:>10.2f}€\n"
+
+        mensaje += "```"
 
     keyboard = [[InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]]
 
     await query.edit_message_text(
         mensaje,
+        parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
     print("=== FIN GENERAR RESUMEN ===")
+
+
+
+def get_objetivos_mes_actual():
+
+    hoja_obj = spreadsheet.worksheet("Cuenta común: gráficos y datos del mes actual")
+    filas = hoja_obj.get_all_values()
+
+    objetivos = {}
+
+    for row in filas[1:]:
+        try:
+            categoria = row[0].strip()
+            objetivo = row[2].strip()   # Columna C
+            real = row[3].strip()       # Columna D
+
+            if not categoria:
+                continue
+
+            objetivo = objetivo.replace("€","").replace(".","").replace(",",".")
+            real = real.replace("€","").replace(".","").replace(",",".")
+            
+            objetivo = float(objetivo) if objetivo else 0
+            real = float(real) if real else 0
+
+            objetivos[categoria] = {
+                "objetivo": objetivo,
+                "real": real
+            }
+
+        except:
+            continue
+
+    return objetivos
 
 
 

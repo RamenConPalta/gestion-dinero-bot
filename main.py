@@ -1082,11 +1082,56 @@ async def button_handler(update, context):
         return
 
     if data.startswith("lista_borrar|"):
-
+    
         supermercado = data.split("|")[1]
     
-        if supermercado == "todo":
+        hoja = {
+            "Carrefour": sheet_carrefour,
+            "Mercadona": sheet_mercadona,
+            "Sirena": sheet_sirena
+        }[supermercado]
+    
+        productos = hoja.col_values(1)[1:]  # quitar cabecera
+    
+        if not productos:
+            await query.edit_message_text("Lista vacía.")
             return
+    
+        user_states[user_id] = {
+            "modo_borrado": True,
+            "supermercado": supermercado,
+            "seleccionados": set()
+        }
+    
+        keyboard = []
+    
+        for i, producto in enumerate(productos, start=2):
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"☐ {producto}",
+                    callback_data=f"lista_toggle|{i}"
+                )
+            ])
+    
+        keyboard.append([
+            InlineKeyboardButton("🗑️ Eliminar seleccionados", callback_data="lista_confirm_delete")
+        ])
+        keyboard.append([
+            InlineKeyboardButton("⬅ Volver", callback_data="menu|lista")
+        ])
+    
+        await query.edit_message_text(
+            f"Selecciona productos a borrar ({supermercado}):",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    if data.startswith("lista_toggle|"):
+
+        fila = int(data.split("|")[1])
+    
+        estado = user_states[user_id]
+        supermercado = estado["supermercado"]
     
         hoja = {
             "Carrefour": sheet_carrefour,
@@ -1096,48 +1141,45 @@ async def button_handler(update, context):
     
         productos = hoja.col_values(1)[1:]
     
-        if not productos:
-            await query.edit_message_text(
-                f"La lista de {supermercado} está vacía.",
-                reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("⬅ Volver", callback_data="menu|lista")]]
-                )
-            )
-            return
+        if fila in estado["seleccionados"]:
+            estado["seleccionados"].remove(fila)
+        else:
+            estado["seleccionados"].add(fila)
     
+        # reconstruir teclado
         keyboard = []
     
         for i, producto in enumerate(productos, start=2):
+            marca = "✅" if i in estado["seleccionados"] else "☐"
             keyboard.append([
                 InlineKeyboardButton(
-                    f"❌ {producto}",
-                    callback_data=f"lista_delete_item|{supermercado}|{i}"
+                    f"{marca} {producto}",
+                    callback_data=f"lista_toggle|{i}"
                 )
             ])
     
         keyboard.append([
-            InlineKeyboardButton(
-                "🗑️ Borrar TODO",
-                callback_data=f"lista_delete_all|{supermercado}"
-            )
+            InlineKeyboardButton("🗑️ Eliminar seleccionados", callback_data="lista_confirm_delete")
         ])
-    
         keyboard.append([
             InlineKeyboardButton("⬅ Volver", callback_data="menu|lista")
         ])
     
         await query.edit_message_text(
-            f"Selecciona qué borrar en {supermercado}:",
+            f"Selecciona productos a borrar ({supermercado}):",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
 
-    # ================= BORRAR ITEM INDIVIDUAL =================
-    
-    if data.startswith("lista_delete_item|"):
+    if data == "lista_confirm_delete":
 
-        _, supermercado, fila = data.split("|")
-        fila = int(fila)
+        estado = user_states.get(user_id)
+    
+        if not estado or not estado["seleccionados"]:
+            await query.answer("No hay productos seleccionados.")
+            return
+    
+        supermercado = estado["supermercado"]
     
         hoja = {
             "Carrefour": sheet_carrefour,
@@ -1145,9 +1187,13 @@ async def button_handler(update, context):
             "Sirena": sheet_sirena
         }[supermercado]
     
-        hoja.delete_rows(fila)
+        # borrar desde abajo hacia arriba
+        for fila in sorted(estado["seleccionados"], reverse=True):
+            hoja.delete_rows(fila)
     
-        await query.answer("Producto eliminado ✅")
+        user_states.pop(user_id)
+    
+        await query.answer("Productos eliminados ✅")
         await mostrar_menu(query)
         return
 

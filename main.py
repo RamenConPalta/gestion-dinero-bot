@@ -29,6 +29,9 @@ AUTHORIZED_USERS = set(
     int(uid) for uid in os.environ.get("AUTHORIZED_USERS", "").split(",") if uid
 )
 
+
+ADMIN_ID = int(os.environ.get("ADMIN_ID"))
+
 # =========================
 # GOOGLE SHEETS
 # =========================
@@ -89,6 +92,32 @@ def botones_navegacion():
         InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")
     ]
 
+async def verificar_autorizacion(update, context):
+    user = update.effective_user
+    user_id = user.id
+
+    if user_id not in AUTHORIZED_USERS:
+
+        mensaje_alerta = (
+            "🚨 INTENTO DE ACCESO NO AUTORIZADO 🚨\n\n"
+            f"ID: {user_id}\n"
+            f"Nombre: {user.first_name}\n"
+            f"Username: @{user.username}"
+        )
+
+        # Notificar al admin
+        await context.bot.send_message(chat_id=ADMIN_ID, text=mensaje_alerta)
+
+        # Avisar al intruso
+        if update.message:
+            await update.message.reply_text("⛔ No tienes acceso a este bot.")
+        elif update.callback_query:
+            await update.callback_query.answer("⛔ No autorizado", show_alert=True)
+
+        return False
+
+    return True
+
 def limpiar_importe(valor):
     valor = str(valor).strip()
     valor = valor.replace("€", "").replace(" ", "")
@@ -109,6 +138,8 @@ def limpiar_importe(valor):
         return 0
 
     return float(valor)
+
+
 
 def generar_barra(real, objetivo, largo=10):
 
@@ -242,12 +273,10 @@ async def mostrar_selector_meses(query):
     )
 
 async def start(update, context):
-    print("USER ID:", update.effective_user.id)
 
     user_id = update.effective_user.id
-
-    if not usuario_autorizado(user_id):
-        await update.message.reply_text("⛔ No tienes acceso a este bot.")
+    
+    if not await verificar_autorizacion(update, context):
         return
         
     keyboard = [
@@ -414,7 +443,7 @@ async def recibir_texto(update, context):
 
     user_id = update.effective_user.id
 
-    if not usuario_autorizado(user_id):
+    if not await verificar_autorizacion(update, context):
         return
     
     user_id=update.effective_user.id
@@ -533,8 +562,7 @@ async def button_handler(update, context):
 
     user_id = query.from_user.id
 
-    if not usuario_autorizado(user_id):
-        await query.edit_message_text("⛔ No tienes acceso a este bot.")
+    if not await verificar_autorizacion(update, context):
         return
 
     user_id=query.from_user.id

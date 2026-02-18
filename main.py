@@ -25,9 +25,9 @@ PORT = int(os.environ.get("PORT", 10000))
 # USUARIOS AUTORIZADOS
 # =========================
 
-#AUTHORIZED_USERS = set(
-#    int(uid) for uid in os.environ.get("AUTHORIZED_USERS", "").split(",") if uid
-#)
+AUTHORIZED_USERS = set(
+    int(uid) for uid in os.environ.get("AUTHORIZED_USERS", "").split(",") if uid
+)
 
 # =========================
 # GOOGLE SHEETS
@@ -246,9 +246,9 @@ async def start(update, context):
 
     user_id = update.effective_user.id
 
-    #if not usuario_autorizado(user_id):
-        #await update.message.reply_text("⛔ No tienes acceso a este bot.")
-        #return
+    if not usuario_autorizado(user_id):
+        await update.message.reply_text("⛔ No tienes acceso a este bot.")
+        return
         
     keyboard = [
         [InlineKeyboardButton("➕ Añadir registro", callback_data="menu|add")],
@@ -412,10 +412,10 @@ def get_objetivos_mes_actual():
 
 async def recibir_texto(update, context):
 
-    #user_id = update.effective_user.id
+    user_id = update.effective_user.id
 
-    #if not usuario_autorizado(user_id):
-    #    return
+    if not usuario_autorizado(user_id):
+        return
     
     user_id=update.effective_user.id
     if user_id not in user_states:
@@ -533,9 +533,9 @@ async def button_handler(update, context):
 
     user_id = query.from_user.id
 
-    #if not usuario_autorizado(user_id):
-        #await query.edit_message_text("⛔ No tienes acceso a este bot.")
-        #return
+    if not usuario_autorizado(user_id):
+        await query.edit_message_text("⛔ No tienes acceso a este bot.")
+        return
 
     user_id=query.from_user.id
     data=query.data

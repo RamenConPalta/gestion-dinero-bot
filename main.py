@@ -22,6 +22,14 @@ SHEET_NAME_LISTA_COMPRA = os.environ.get("SPREADSHEET_NAME_LISTA_COMPRA")
 PORT = int(os.environ.get("PORT", 10000))
 
 # =========================
+# USUARIOS AUTORIZADOS
+# =========================
+
+#AUTHORIZED_USERS = set(
+#    int(uid) for uid in os.environ.get("AUTHORIZED_USERS", "").split(",") if uid
+#)
+
+# =========================
 # GOOGLE SHEETS
 # =========================
 
@@ -64,6 +72,9 @@ user_states = {}
 # FUNCIONES AUXILIARES
 # =========================
 
+def usuario_autorizado(user_id):
+    return user_id in AUTHORIZED_USERS
+    
 def resumen_parcial(data):
     texto = ""
     for campo in ["fecha","persona","pagador","tipo","categoria","sub1","sub2","sub3"]:
@@ -231,7 +242,14 @@ async def mostrar_selector_meses(query):
     )
 
 async def start(update, context):
+    print("USER ID:", update.effective_user.id)
 
+    user_id = update.effective_user.id
+
+    #if not usuario_autorizado(user_id):
+        #await update.message.reply_text("⛔ No tienes acceso a este bot.")
+        #return
+        
     keyboard = [
         [InlineKeyboardButton("➕ Añadir registro", callback_data="menu|add")],
         [InlineKeyboardButton("📈 Ver resumen", callback_data="menu|resumen")],
@@ -393,6 +411,12 @@ def get_objetivos_mes_actual():
 # =========================
 
 async def recibir_texto(update, context):
+
+    #user_id = update.effective_user.id
+
+    #if not usuario_autorizado(user_id):
+    #    return
+    
     user_id=update.effective_user.id
     if user_id not in user_states:
         return
@@ -506,6 +530,12 @@ async def recibir_texto(update, context):
 async def button_handler(update, context):
     query=update.callback_query
     await query.answer()
+
+    user_id = query.from_user.id
+
+    #if not usuario_autorizado(user_id):
+        #await query.edit_message_text("⛔ No tienes acceso a este bot.")
+        #return
 
     user_id=query.from_user.id
     data=query.data

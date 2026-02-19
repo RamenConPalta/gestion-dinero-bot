@@ -199,7 +199,7 @@ async def notificar_lista_actualizada(context):
 
     mensaje_lista = obtener_lista_completa()
 
-    for user_id_aut in USUARIOS_AUTORIZADOS:
+    for user_id_aut in AUTHORIZED_USERS:
         try:
             await context.bot.send_message(
                 chat_id=user_id_aut,

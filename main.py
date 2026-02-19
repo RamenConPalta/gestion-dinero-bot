@@ -63,6 +63,7 @@ lista_spreadsheet = client.open(SHEET_NAME_LISTA_COMPRA)
 sheet_carrefour = lista_spreadsheet.worksheet("Carrefour")
 sheet_mercadona = lista_spreadsheet.worksheet("Mercadona")
 sheet_sirena = lista_spreadsheet.worksheet("Sirena")
+sheet_otros = lista_spreadsheet.worksheet("Otros")
 
 
 # =========================
@@ -169,6 +170,30 @@ def generar_barra(real, objetivo, largo=10):
 
     return texto
 
+def obtener_lista_completa():
+
+    mensaje = "🛒 LISTA ACTUAL COMPLETA\n\n"
+
+    for nombre, hoja in [
+        ("Carrefour", sheet_carrefour),
+        ("Mercadona", sheet_mercadona),
+        ("Sirena", sheet_sirena),
+        ("Otros", sheet_otros)
+    ]:
+
+        productos = hoja.col_values(1)[1:]
+
+        mensaje += f"📍 {nombre}\n"
+
+        if productos:
+            for p in productos:
+                mensaje += f"  • {p}\n"
+        else:
+            mensaje += "  (Vacío)\n"
+
+        mensaje += "\n"
+
+    return mensaje
 # =========================
 # FUNCIONES DATOS
 # =========================
@@ -240,12 +265,13 @@ def get_sub3(tipo, categoria, sub1, sub2):
 
 async def mostrar_menu(query):
     keyboard = [
-        [InlineKeyboardButton("➕ Añadir registro", callback_data="menu|add")],
-        [InlineKeyboardButton("📈 Ver resumen", callback_data="menu|resumen")],
-        [InlineKeyboardButton("🛒 Lista de la compra", callback_data="menu|lista")]
+        [InlineKeyboardButton("💰 Gestión de dinero", callback_data="menu|gestion")],
+        [InlineKeyboardButton("🛒 Lista de la compra", callback_data="menu|lista")],
+        [InlineKeyboardButton("💼 Trabajo", callback_data="menu|trabajo")]
     ]
+
     await query.edit_message_text(
-        "📊 Gestión de dinero\n\nSelecciona una opción:",
+        "📲 Menú principal",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -278,15 +304,15 @@ async def start(update, context):
     
     if not await verificar_autorizacion(update, context):
         return
-        
+
     keyboard = [
-        [InlineKeyboardButton("➕ Añadir registro", callback_data="menu|add")],
-        [InlineKeyboardButton("📈 Ver resumen", callback_data="menu|resumen")],
-        [InlineKeyboardButton("🛒 Lista de la compra", callback_data="menu|lista")]
+        [InlineKeyboardButton("💰 Gestión de dinero", callback_data="menu|gestion")],
+        [InlineKeyboardButton("🛒 Lista de la compra", callback_data="menu|lista")],
+        [InlineKeyboardButton("💼 Trabajo", callback_data="menu|trabajo")]
     ]
 
     await update.message.reply_text(
-        "📊 Gestión de dinero\n\nSelecciona una opción:",
+        "📲 Menú principal",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -476,9 +502,15 @@ async def recibir_texto(update, context):
         for producto in productos:
             hoja.append_row([producto])
     
-        await update.message.reply_text(
-            f"✅ Añadidos {len(productos)} productos a {supermercado}"
-        )
+        mensaje_lista = obtener_lista_completa()
+
+        for user_id_aut in AUTHORIZED_USERS:
+            await context.bot.send_message(
+                chat_id=user_id_aut,
+                text=mensaje_lista
+            )
+        
+        await mostrar_menu(update.message)
         
         user_states.pop(user_id)
         
@@ -580,6 +612,48 @@ async def button_handler(update, context):
     # VOLVER MENU
     if data=="menu|volver":
         await mostrar_menu(query)
+        return
+    # MENU TRABAJO
+    if data == "menu|trabajo":
+
+        keyboard = [
+            [InlineKeyboardButton("Claudia", callback_data="trabajo|Claudia")],
+            [InlineKeyboardButton("Ramon", callback_data="trabajo|Ramon")],
+            [InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]
+        ]
+    
+        await query.edit_message_text(
+            "💼 Trabajo",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # DENTRO DE MENU TRABAJO
+    if data.startswith("trabajo|"):
+
+        persona = data.split("|")[1]
+    
+        await query.edit_message_text(
+            f"Sección de trabajo de {persona} (pendiente de desarrollar)",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("⬅ Volver", callback_data="menu|trabajo")]]
+            )
+        )
+        return
+        
+    # MENU GESTIÓN
+    if data == "menu|gestion":
+
+        keyboard = [
+            [InlineKeyboardButton("➕ Añadir registro", callback_data="menu|add")],
+            [InlineKeyboardButton("📈 Ver resumen", callback_data="menu|resumen")],
+            [InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]
+        ]
+    
+        await query.edit_message_text(
+            "💰 Gestión de dinero",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
         return
 
     # MENU ADD
@@ -1058,6 +1132,7 @@ async def button_handler(update, context):
             [InlineKeyboardButton("Carrefour", callback_data="lista_add|Carrefour")],
             [InlineKeyboardButton("Mercadona", callback_data="lista_add|Mercadona")],
             [InlineKeyboardButton("Sirena", callback_data="lista_add|Sirena")],
+            [InlineKeyboardButton("Otros", callback_data="lista_add|Otros")],
             [InlineKeyboardButton("⬅ Volver", callback_data="menu|lista")]
         ]
     
@@ -1146,7 +1221,8 @@ async def button_handler(update, context):
         hoja = {
             "Carrefour": sheet_carrefour,
             "Mercadona": sheet_mercadona,
-            "Sirena": sheet_sirena
+            "Sirena": sheet_sirena,
+            "Otros": sheet_otros
         }[supermercado]
     
         productos = hoja.col_values(1)[1:]  # quitar cabecera
@@ -1202,7 +1278,8 @@ async def button_handler(update, context):
         hoja = {
             "Carrefour": sheet_carrefour,
             "Mercadona": sheet_mercadona,
-            "Sirena": sheet_sirena
+            "Sirena": sheet_sirena,
+            "Otros": sheet_otros
         }[supermercado]
     
         filas_con_datos = len(hoja.col_values(1))
@@ -1224,7 +1301,8 @@ async def button_handler(update, context):
         hoja = {
             "Carrefour": sheet_carrefour,
             "Mercadona": sheet_mercadona,
-            "Sirena": sheet_sirena
+            "Sirena": sheet_sirena,
+            "Otros": sheet_otros
         }[supermercado]
     
         productos = hoja.col_values(1)[1:]
@@ -1272,7 +1350,8 @@ async def button_handler(update, context):
         hoja = {
             "Carrefour": sheet_carrefour,
             "Mercadona": sheet_mercadona,
-            "Sirena": sheet_sirena
+            "Sirena": sheet_sirena,
+            "Otros": sheet_otros
         }[supermercado]
     
         # borrar desde abajo hacia arriba

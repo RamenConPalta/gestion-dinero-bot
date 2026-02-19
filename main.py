@@ -288,6 +288,20 @@ async def mostrar_menu(query):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+async def mostrar_menu_lista(query):
+
+    keyboard = [
+        [InlineKeyboardButton("➕ Añadir", callback_data="lista|add")],
+        [InlineKeyboardButton("👁️ Ver", callback_data="lista|ver")],
+        [InlineKeyboardButton("❌ Borrar", callback_data="lista|borrar")],
+        [InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]
+    ]
+
+    await query.edit_message_text(
+        "🛒 Lista de la compra",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
 async def mostrar_selector_meses(query):
 
     año_actual = datetime.now().year
@@ -515,19 +529,23 @@ async def recibir_texto(update, context):
     
         # Limpiar estado
         user_states.pop(user_id)
-    
-        # 🔔 Notificar lista actualizada a todos los autorizados
+        
+        # 🔔 Notificar lista actualizada
         await notificar_lista_actualizada(context)
-    
-        # 🔙 Volver al menú principal
+        
+        # 🔙 Volver al menú lista
+        await update.message.reply_text("🛒 Lista actualizada correctamente.")
+        
+        # Enviar menú lista como nuevo mensaje con botones
         keyboard = [
-            [InlineKeyboardButton("💰 Gestión de dinero", callback_data="menu|dinero")],
-            [InlineKeyboardButton("🛒 Lista de la compra", callback_data="menu|lista")],
-            [InlineKeyboardButton("💼 Trabajo", callback_data="menu|trabajo")]
+            [InlineKeyboardButton("➕ Añadir", callback_data="lista|add")],
+            [InlineKeyboardButton("👁️ Ver", callback_data="lista|ver")],
+            [InlineKeyboardButton("❌ Borrar", callback_data="lista|borrar")],
+            [InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]
         ]
-    
+        
         await update.message.reply_text(
-            "📊 Menú principal:",
+            "🛒 Lista de la compra",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     

@@ -194,6 +194,19 @@ def obtener_lista_completa():
         mensaje += "\n"
 
     return mensaje
+
+async def notificar_lista_actualizada(context):
+
+    mensaje_lista = obtener_lista_completa()
+
+    for user_id_aut in USUARIOS_AUTORIZADOS:
+        try:
+            await context.bot.send_message(
+                chat_id=user_id_aut,
+                text=mensaje_lista
+            )
+        except Exception as e:
+            print("Error enviando lista a", user_id_aut, e)
 # =========================
 # FUNCIONES DATOS
 # =========================
@@ -478,8 +491,8 @@ async def recibir_texto(update, context):
 
     texto=update.message.text.strip()
 
-        # ================= LISTA COMPRA =================
-    
+       # ================= LISTA COMPRA =================
+
     if user_states[user_id].get("esperando_lista_productos"):
     
         supermercado = user_states[user_id]["lista_supermercado"]
@@ -490,41 +503,34 @@ async def recibir_texto(update, context):
             await update.message.reply_text("No se detectaron productos.")
             return
     
-        hoja = None
-    
-        if supermercado == "Carrefour":
-            hoja = sheet_carrefour
-        elif supermercado == "Mercadona":
-            hoja = sheet_mercadona
-        elif supermercado == "Sirena":
-            hoja = sheet_sirena
+        hoja = {
+            "Carrefour": sheet_carrefour,
+            "Mercadona": sheet_mercadona,
+            "Sirena": sheet_sirena,
+            "Otros": sheet_otros
+        }[supermercado]
     
         for producto in productos:
             hoja.append_row([producto])
     
-        mensaje_lista = obtener_lista_completa()
-
-        for user_id_aut in AUTHORIZED_USERS:
-            await context.bot.send_message(
-                chat_id=user_id_aut,
-                text=mensaje_lista
-            )
-        
-        await mostrar_menu(update.message)
-        
+        # Limpiar estado
         user_states.pop(user_id)
-        
+    
+        # 🔔 Notificar lista actualizada a todos los autorizados
+        await notificar_lista_actualizada(context)
+    
+        # 🔙 Volver al menú principal
         keyboard = [
-            [InlineKeyboardButton("➕ Añadir registro", callback_data="menu|add")],
-            [InlineKeyboardButton("📈 Ver resumen", callback_data="menu|resumen")],
-            [InlineKeyboardButton("🛒 Lista de la compra", callback_data="menu|lista")]
+            [InlineKeyboardButton("💰 Gestión de dinero", callback_data="menu|dinero")],
+            [InlineKeyboardButton("🛒 Lista de la compra", callback_data="menu|lista")],
+            [InlineKeyboardButton("💼 Trabajo", callback_data="menu|trabajo")]
         ]
-        
+    
         await update.message.reply_text(
-            "📊 Gestión de dinero\n\nSelecciona una opción:",
+            "📊 Menú principal:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-        
+    
         return
 
     # FECHA MANUAL
@@ -1163,7 +1169,8 @@ async def button_handler(update, context):
         for nombre, hoja in [
             ("Carrefour", sheet_carrefour),
             ("Mercadona", sheet_mercadona),
-            ("Sirena", sheet_sirena)
+            ("Sirena", sheet_sirena),
+            ("Otros", sheet_otros)
         ]:
     
             productos = hoja.col_values(1)[1:]
@@ -1192,6 +1199,7 @@ async def button_handler(update, context):
             [InlineKeyboardButton("Carrefour", callback_data="lista_borrar|Carrefour")],
             [InlineKeyboardButton("Mercadona", callback_data="lista_borrar|Mercadona")],
             [InlineKeyboardButton("Sirena", callback_data="lista_borrar|Sirena")],
+            [InlineKeyboardButton("Otros", callback_data="lista_borrar|Otros")],
             [InlineKeyboardButton("🗑️ Borrar TODO", callback_data="lista_borrar|todo")],
             [InlineKeyboardButton("⬅ Volver", callback_data="menu|lista")]
         ]
@@ -1210,7 +1218,8 @@ async def button_handler(update, context):
     
             if filas > 1:
                 hoja.batch_clear([f"A2:A{filas}"])
-    
+                
+        await notificar_lista_actualizada(context)
         await mostrar_menu(query)
         return
 
@@ -1288,6 +1297,7 @@ async def button_handler(update, context):
             hoja.batch_clear([f"A2:A{filas_con_datos}"])
     
         await query.answer("Lista borrada ✅")
+        await notificar_lista_actualizada(context)
         await mostrar_menu(query)
         return
 
@@ -1361,6 +1371,7 @@ async def button_handler(update, context):
         user_states.pop(user_id)
     
         await query.answer("Productos eliminados ✅")
+        await notificar_lista_actualizada(context)
         await mostrar_menu(query)
         return
 

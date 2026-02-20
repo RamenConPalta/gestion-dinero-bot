@@ -922,7 +922,6 @@ async def recibir_texto(update, context):
         keyboard = [
             [InlineKeyboardButton("⏭️ Saltar paso", callback_data="trabajo_skip|perdida")],
             botones_navegacion(),
-            reply_markup=InlineKeyboardMarkup(keyboard),
         ]
         await actualizar_mensaje_flujo(
             update,

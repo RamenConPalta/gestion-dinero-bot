@@ -228,7 +228,7 @@ def teclado_menu_trabajo():
     ]
 
 
-async def desplazar_menu_principal_al_final(context, user_id):
+async def desplazar_menu_al_final(context, user_id, texto_menu, keyboard):
     estado = user_states.get(user_id, {})
     chat_id = estado.get("ui_chat_id")
     message_id = estado.get("ui_message_id")
@@ -241,11 +241,20 @@ async def desplazar_menu_principal_al_final(context, user_id):
 
     sent_message = await context.bot.send_message(
         chat_id=user_id,
-        text="📲 Menú principal",
-        reply_markup=InlineKeyboardMarkup(teclado_menu_principal()),
+        text=texto_menu,
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
     user_states.setdefault(user_id, {})["ui_chat_id"] = sent_message.chat_id
     user_states[user_id]["ui_message_id"] = sent_message.message_id
+
+
+async def desplazar_menu_principal_al_final(context, user_id):
+    await desplazar_menu_al_final(
+        context,
+        user_id,
+        "📲 Menú principal",
+        teclado_menu_principal(),
+    )
 
 
 def registrar_mensaje_interactivo(user_id, query):
@@ -942,17 +951,19 @@ async def recibir_texto(update, context):
         user_states[user_id]["trabajo_esperando_beneficio"] = False
 
         guardar_registro_trabajo(user_states[user_id])
-        await actualizar_mensaje_flujo(
-            update,
+
+        resumen_guardado = (
+            "✅ Registro de trabajo guardado en PromosDone.\n\n"
+            + resumen_trabajo_parcial(user_states[user_id])
+        )
+        await update.message.reply_text(resumen_guardado)
+
+        await desplazar_menu_al_final(
             context,
             user_id,
-            "✅ Registro de trabajo guardado en PromosDone.\n\n💼 Trabajo",
-            reply_markup=InlineKeyboardMarkup(teclado_menu_trabajo()),
+            "💼 Trabajo",
+            teclado_menu_trabajo(),
         )
-        user_states[user_id] = {
-            "ui_chat_id": user_states[user_id].get("ui_chat_id"),
-            "ui_message_id": user_states[user_id].get("ui_message_id"),
-        }
         return
 
     # ================= LISTA COMPRA =================
@@ -978,18 +989,18 @@ async def recibir_texto(update, context):
             hoja.append_row([producto])
             
         await notificar_lista_actualizada(context, mover_menu=True)
-        await actualizar_mensaje_flujo(
-            update,
-            context,
-            user_id,
-            "🛒 Lista actualizada correctamente.\n\n🛒 Lista de la compra",
-            reply_markup=InlineKeyboardMarkup(teclado_menu_lista()),
+        await update.message.reply_text(
+            "🛒 Lista actualizada correctamente en Excel.\n"
+            f"Supermercado: {supermercado}\n"
+            f"Productos: {', '.join(productos)}"
         )
 
-        user_states[user_id] = {
-            "ui_chat_id": user_states[user_id].get("ui_chat_id"),
-            "ui_message_id": user_states[user_id].get("ui_message_id"),
-        }
+        await desplazar_menu_al_final(
+            context,
+            user_id,
+            "🛒 Lista de la compra",
+            teclado_menu_lista(),
+        )
         return
 
     # FECHA MANUAL
@@ -1022,7 +1033,12 @@ async def recibir_texto(update, context):
         user_states[user_id]["observacion"] = texto
         user_states[user_id]["esperando_observacion_texto"] = False
         user_states[user_id]["esperando_importe"] = True
-        await actualizar_mensaje_flujo(update, context, user_id, "💰 Escribe el importe:")
+        await actualizar_mensaje_flujo(
+            update,
+            context,
+            user_id,
+            resumen_parcial(user_states[user_id]) + "\n💰 Escribe el importe:",
+        )
         return
 
     # IMPORTE
@@ -1049,18 +1065,27 @@ async def recibir_texto(update, context):
             data.get("observacion", ""),
             importe
         ], value_input_option="USER_ENTERED")
+        resumen_guardado = (
+            "✅ Movimiento guardado correctamente en Excel.\n\n"
+            f"Fecha: {data.get('fecha', '')}\n"
+            f"Persona: {data.get('persona', '')}\n"
+            f"Pagador: {data.get('pagador', '')}\n"
+            f"Tipo: {data.get('tipo', '')}\n"
+            f"Categoría: {data.get('categoria', '')}\n"
+            f"Sub1: {data.get('sub1', '—')}\n"
+            f"Sub2: {data.get('sub2', '—')}\n"
+            f"Sub3: {data.get('sub3', '—')}\n"
+            f"Observación: {data.get('observacion', '') or '—'}\n"
+            f"Importe: {importe}"
+        )
+        await update.message.reply_text(resumen_guardado)
 
-        await actualizar_mensaje_flujo(
-            update,
+        await desplazar_menu_al_final(
             context,
             user_id,
-            "✅ Movimiento guardado correctamente.\n\n💰 Gestión de dinero",
-            reply_markup=InlineKeyboardMarkup(teclado_menu_gestion()),
+            "💰 Gestión de dinero",
+            teclado_menu_gestion(),
         )
-        user_states[user_id] = {
-            "ui_chat_id": user_states[user_id].get("ui_chat_id"),
-            "ui_message_id": user_states[user_id].get("ui_message_id"),
-        }
 
 
 # =========================
@@ -1573,11 +1598,15 @@ async def button_handler(update, context):
 
         if opcion == "si":
             user_states[user_id]["esperando_observacion_texto"] = True
-            await query.edit_message_text("✍️ Escribe la observación:")
+            await query.edit_message_text(
+                resumen_parcial(user_states[user_id]) + "\n✍️ Escribe la observación:"
+            )
         else:
             user_states[user_id]["observacion"] = ""
             user_states[user_id]["esperando_importe"] = True
-            await query.edit_message_text("💰 Escribe el importe:")
+            await query.edit_message_text(
+                resumen_parcial(user_states[user_id]) + "\n💰 Escribe el importe:"
+            )
         return
         
     # ================= BACK =================

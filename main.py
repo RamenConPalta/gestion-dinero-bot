@@ -473,13 +473,25 @@ def parse_numero_con_signo(texto):
     return float(valor)
 
 
+def formatear_fecha_para_sheet(fecha_texto):
+    valor = str(fecha_texto).strip()
+    if not valor:
+        return ""
+
+    try:
+        fecha = datetime.strptime(valor, "%d/%m/%Y")
+        return fecha.strftime("%Y-%m-%d")
+    except ValueError:
+        return valor
+
+
 def guardar_registro_trabajo(data):
     persona = data["trabajo_persona"]
     hoja = trabajo_promos_sheets[persona]
 
     fila = [""] * 17
     fila[0] = data.get("trabajo_promotor", "")
-    fila[1] = data.get("trabajo_fecha", "")
+    fila[1] = formatear_fecha_para_sheet(data.get("trabajo_fecha", ""))
     fila[2] = data.get("trabajo_casa", "")
     fila[3] = data.get("trabajo_tipo_bono", "")
     fila[4] = data.get("trabajo_tipo_promo", "")
@@ -903,7 +915,7 @@ async def recibir_texto(update, context):
         data=user_states[user_id]
 
         sheet.append_row([
-            data.get("fecha",""),
+            formatear_fecha_para_sheet(data.get("fecha", "")),
             data.get("persona",""),
             data.get("pagador",""),
             data.get("tipo",""),
@@ -913,7 +925,7 @@ async def recibir_texto(update, context):
             data.get("sub3","—"),
             data.get("observacion",""),
             importe
-        ])
+        ], value_input_option="USER_ENTERED")
 
         await update.message.reply_text("✅ Movimiento guardado correctamente.")
         user_states.pop(user_id)

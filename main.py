@@ -2,6 +2,9 @@ import os
 import json
 import logging
 import time
+import re
+import unicodedata
+from difflib import SequenceMatcher
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -14,6 +17,44 @@ from datetime import datetime, timedelta
 from google.oauth2.service_account import Credentials
 import gspread
 
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+TRABAJO_SPREADSHEETS = {
+    "Claudia": "RegistreApostes2026_SeñoraLapa",
+    "Ramon": "RegistreApostes2026_SeñorLapa",
+}
+
+TRABAJO_PROMOTORES = {
+    "Claudia": ["CGP", "RFB", "AFD", "MLC", "RGM"],
+    "Ramon": ["RCM", "RCN", "DMC", "TBG", "AAL", "JCM", "JPT", "RGP", "JPC", "JJA"],
+}
+
+TRABAJO_TIPOS_BONO = [
+    "Bono Bienvenida",
+    "Casino Bienvenida",
+    "Recurrente",
+    "Casino Recurrente",
+]
+
+TRABAJO_TIPOS_PROMO = [
+    "Reembolso",
+    "Freebet",
+    "Cuota mejorada",
+    "Rollover",
+    "Bonos superiores",
+    "Freespins",
+    "Extra depósito",
+    "Freebet con condiciones",
+    "Error",
+    "Blackjack",
+    "Dinero real",
+    "Ganancia adicional",
+    "Surebet",
+    "Millas",
+    "Supercuota",
+]
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -96,6 +137,24 @@ sheet_mercadona = lista_spreadsheet.worksheet("Mercadona")
 sheet_sirena = lista_spreadsheet.worksheet("Sirena")
 sheet_otros = lista_spreadsheet.worksheet("Otros")
 
+# =========================
+# GOOGLE SHEETS TRABAJO
+# =========================
+
+trabajo_spreadsheets = {
+    persona: client.open(nombre)
+    for persona, nombre in TRABAJO_SPREADSHEETS.items()
+}
+
+trabajo_promos_sheets = {
+    persona: book.worksheet("Promos Done")
+    for persona, book in trabajo_spreadsheets.items()
+}
+
+trabajo_control_sheets = {
+    persona: book.worksheet("ControlDeCases")
+    for persona, book in trabajo_spreadsheets.items()
+}
 
 # =========================
 # USER STATE
@@ -108,6 +167,10 @@ _listas_cache = {
     "data": None,
     "expires_at": 0.0,
 }
+
+TRABAJO_CASAS_CACHE_SECONDS = 300
+_trabajo_casas_cache = {}
+
 
 # =========================
 # FUNCIONES AUXILIARES
@@ -261,7 +324,7 @@ def get_listas_data():
     now = time.monotonic()
     if _listas_cache["data"] is not None and now < _listas_cache["expires_at"]:
         return _listas_cache["data"]
-        
+
     data = listas_sheet.get_all_values()[1:]
     _listas_cache["data"] = data
     _listas_cache["expires_at"] = now + LISTAS_CACHE_SECONDS
@@ -319,6 +382,113 @@ def get_sub3(tipo, categoria, sub1, sub2):
             sub3_set.add(row[4].strip())
 
     return sorted(sub3_set)
+
+def resumen_trabajo_parcial(data):
+    campos = [
+        ("trabajo_promotor", "Promotor"),
+        ("trabajo_fecha", "Fecha"),
+        ("trabajo_casa", "Casa"),
+        ("trabajo_tipo_bono", "Tipo bono"),
+        ("trabajo_tipo_promo", "Tipo promo"),
+        ("trabajo_observaciones", "Observaciones"),
+        ("trabajo_partido", "Partido"),
+        ("trabajo_perdida", "Pérdida"),
+        ("trabajo_beneficio", "Beneficio"),
+    ]
+
+    texto = ""
+    for key, label in campos:
+        if key in data:
+            texto += f"{label}: {data[key]} ✅\n"
+    return texto
+
+
+def normalizar_texto(valor):
+    base = unicodedata.normalize("NFKD", valor)
+    sin_acentos = "".join(c for c in base if not unicodedata.combining(c))
+    limpio = re.sub(r"[^a-z0-9]", "", sin_acentos.lower())
+    return limpio
+
+
+def obtener_casas_trabajo(persona):
+    now = time.monotonic()
+    cache = _trabajo_casas_cache.get(persona)
+    if cache and now < cache["expires_at"]:
+        return cache["data"]
+
+    sheet_control = trabajo_control_sheets[persona]
+    valores = sheet_control.get("A5:A55")
+    casas = [row[0].strip() for row in valores if row and row[0].strip()]
+    _trabajo_casas_cache[persona] = {
+        "data": casas,
+        "expires_at": now + TRABAJO_CASAS_CACHE_SECONDS,
+    }
+    return casas
+
+
+def score_casa(entrada, casa):
+    en = normalizar_texto(entrada)
+    ca = normalizar_texto(casa)
+    if not en:
+        return 0
+    if en == ca:
+        return 1.0
+    if en in ca or ca in en:
+        return 0.95
+    acronimo = "".join(word[0] for word in casa.split() if word)
+    ac = normalizar_texto(acronimo)
+    if en == ac or en in ac:
+        return 0.93
+    return SequenceMatcher(None, en, ca).ratio()
+
+
+def buscar_casas_parecidas(persona, entrada, limite=6):
+    casas = obtener_casas_trabajo(persona)
+    ranking = sorted(
+        ((score_casa(entrada, casa), casa) for casa in casas),
+        key=lambda x: x[0],
+        reverse=True,
+    )
+
+    sugerencias = [casa for score, casa in ranking if score >= 0.55][:limite]
+    if not sugerencias:
+        sugerencias = [casa for _, casa in ranking[:limite]]
+    return sugerencias
+
+
+def parse_numero_con_signo(texto):
+    valor = str(texto).strip().replace("€", "").replace(" ", "")
+    if not valor:
+        raise ValueError("vacío")
+
+    if "," in valor and "." in valor:
+        valor = valor.replace(".", "")
+        valor = valor.replace(",", ".")
+    elif "," in valor:
+        valor = valor.replace(",", ".")
+
+    if valor in {"+", "-", ".", "+.", "-."}:
+        raise ValueError("inválido")
+
+    return float(valor)
+
+
+def guardar_registro_trabajo(data):
+    persona = data["trabajo_persona"]
+    hoja = trabajo_promos_sheets[persona]
+
+    fila = [""] * 17
+    fila[0] = data.get("trabajo_promotor", "")
+    fila[1] = data.get("trabajo_fecha", "")
+    fila[2] = data.get("trabajo_casa", "")
+    fila[3] = data.get("trabajo_tipo_bono", "")
+    fila[4] = data.get("trabajo_tipo_promo", "")
+    fila[5] = data.get("trabajo_observaciones", "")
+    fila[6] = data.get("trabajo_partido", "")
+    fila[15] = data.get("trabajo_perdida", 0)
+    fila[16] = data.get("trabajo_beneficio", 0)
+
+    hoja.append_row(fila, value_input_option="USER_ENTERED")
 
 # =========================
 # MENU
@@ -536,7 +706,6 @@ def get_objetivos_mes_actual():
 
 
 
-
 # =========================
 # RECIBIR TEXTO
 # =========================
@@ -553,6 +722,98 @@ async def recibir_texto(update, context):
         return
 
     texto=update.message.text.strip()
+    
+    # ================= TRABAJO =================
+
+    if user_states[user_id].get("trabajo_esperando_fecha_manual"):
+        try:
+            fecha = datetime.strptime(texto, "%d/%m/%Y")
+            user_states[user_id]["history"].append(user_states[user_id].copy())
+            user_states[user_id]["trabajo_fecha"] = fecha.strftime("%d/%m/%Y")
+            user_states[user_id]["trabajo_esperando_fecha_manual"] = False
+        except ValueError:
+            await update.message.reply_text("❌ Fecha inválida. Usa DD/MM/YYYY")
+            return
+
+        user_states[user_id]["trabajo_esperando_casa_input"] = True
+        await update.message.reply_text(
+            resumen_trabajo_parcial(user_states[user_id]) +
+            "\nEscribe la casa de apuestas (ej: RETA, WilliamHill, CasinoGranMadrid):"
+        )
+        return
+
+    if user_states[user_id].get("trabajo_esperando_casa_input"):
+        persona = user_states[user_id]["trabajo_persona"]
+        sugerencias = buscar_casas_parecidas(persona, texto)
+        user_states[user_id]["trabajo_casa_sugerencias"] = sugerencias
+
+        keyboard = [[InlineKeyboardButton(casa, callback_data=f"trabajo_casa_idx|{idx}")]
+                    for idx, casa in enumerate(sugerencias)]
+        keyboard.append([
+            InlineKeyboardButton("✍️ Escribir otra vez", callback_data="trabajo_casa_reintentar")
+        ])
+        keyboard.append(botones_navegacion())
+
+        await update.message.reply_text(
+            resumen_trabajo_parcial(user_states[user_id]) +
+            "\nSelecciona la casa correcta:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    if user_states[user_id].get("trabajo_esperando_observaciones"):
+        user_states[user_id]["history"].append(user_states[user_id].copy())
+        user_states[user_id]["trabajo_observaciones"] = texto
+        user_states[user_id]["trabajo_esperando_observaciones"] = False
+        user_states[user_id]["trabajo_esperando_partido"] = True
+        await update.message.reply_text(
+            resumen_trabajo_parcial(user_states[user_id]) + "\n✍️ Escribe el partido:"
+        )
+        return
+
+    if user_states[user_id].get("trabajo_esperando_partido"):
+        user_states[user_id]["history"].append(user_states[user_id].copy())
+        user_states[user_id]["trabajo_partido"] = texto
+        user_states[user_id]["trabajo_esperando_partido"] = False
+        user_states[user_id]["trabajo_esperando_perdida"] = True
+        await update.message.reply_text(
+            resumen_trabajo_parcial(user_states[user_id]) +
+            "\n💸 Escribe la pérdida (acepta signo y coma/punto):"
+        )
+        return
+
+    if user_states[user_id].get("trabajo_esperando_perdida"):
+        try:
+            valor = parse_numero_con_signo(texto)
+        except ValueError:
+            await update.message.reply_text("❌ Valor de pérdida no válido.")
+            return
+
+        user_states[user_id]["history"].append(user_states[user_id].copy())
+        user_states[user_id]["trabajo_perdida"] = valor
+        user_states[user_id]["trabajo_esperando_perdida"] = False
+        user_states[user_id]["trabajo_esperando_beneficio"] = True
+        await update.message.reply_text(
+            resumen_trabajo_parcial(user_states[user_id]) +
+            "\n💰 Escribe el beneficio (acepta signo y coma/punto):"
+        )
+        return
+
+    if user_states[user_id].get("trabajo_esperando_beneficio"):
+        try:
+            valor = parse_numero_con_signo(texto)
+        except ValueError:
+            await update.message.reply_text("❌ Valor de beneficio no válido.")
+            return
+
+        user_states[user_id]["history"].append(user_states[user_id].copy())
+        user_states[user_id]["trabajo_beneficio"] = valor
+        user_states[user_id]["trabajo_esperando_beneficio"] = False
+
+        guardar_registro_trabajo(user_states[user_id])
+        await update.message.reply_text("✅ Registro de trabajo guardado en Promos Done.")
+        user_states.pop(user_id, None)
+        return
 
        # ================= LISTA COMPRA =================
 
@@ -705,12 +966,113 @@ async def button_handler(update, context):
     if data.startswith("trabajo|"):
 
         persona = data.split("|")[1]
+
+        user_states[user_id] = {
+            "history": [],
+            "flujo": "trabajo",
+            "trabajo_persona": persona,
+        }
+
+        promotores = TRABAJO_PROMOTORES[persona]
+        keyboard = [[InlineKeyboardButton(p, callback_data=f"trabajo_promotor|{p}")]
+                    for p in promotores]
+        keyboard.append(botones_navegacion())
     
         await query.edit_message_text(
-            f"Sección de trabajo de {persona} (pendiente de desarrollar)",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("⬅ Volver", callback_data="menu|trabajo")]]
-            )
+            f"💼 Trabajo · {persona}\n\n¿Quién hace la promoción?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    if data.startswith("trabajo_promotor|"):
+        promotor = data.split("|", 1)[1]
+        user_states[user_id]["history"].append(user_states[user_id].copy())
+        user_states[user_id]["trabajo_promotor"] = promotor
+
+        keyboard = [
+            [InlineKeyboardButton("Hoy", callback_data="trabajo_fecha|hoy"),
+             InlineKeyboardButton("Ayer", callback_data="trabajo_fecha|ayer")],
+            [InlineKeyboardButton("Otra", callback_data="trabajo_fecha|otra")],
+            botones_navegacion(),
+        ]
+
+        await query.edit_message_text(
+            resumen_trabajo_parcial(user_states[user_id]) + "\n\n📅 Selecciona fecha:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    if data.startswith("trabajo_fecha|"):
+        opcion = data.split("|", 1)[1]
+        if opcion == "otra":
+            user_states[user_id]["trabajo_esperando_fecha_manual"] = True
+            await query.edit_message_text("✍️ Escribe fecha DD/MM/YYYY")
+            return
+
+        if opcion == "hoy":
+            fecha = datetime.now().strftime("%d/%m/%Y")
+        else:
+            fecha = (datetime.now()-timedelta(days=1)).strftime("%d/%m/%Y")
+
+        user_states[user_id]["history"].append(user_states[user_id].copy())
+        user_states[user_id]["trabajo_fecha"] = fecha
+        user_states[user_id]["trabajo_esperando_casa_input"] = True
+        await query.edit_message_text(
+            resumen_trabajo_parcial(user_states[user_id]) +
+            "\n\nEscribe la casa de apuestas (ej: RETA, WilliamHill, CasinoGranMadrid):"
+        )
+        return
+
+    if data == "trabajo_casa_reintentar":
+        await query.edit_message_text(
+            resumen_trabajo_parcial(user_states[user_id]) +
+            "\n\nEscribe de nuevo la casa de apuestas:"
+        )
+        return
+
+    if data.startswith("trabajo_casa_idx|"):
+        idx = int(data.split("|", 1)[1])
+        sugerencias = user_states[user_id].get("trabajo_casa_sugerencias", [])
+        if idx < 0 or idx >= len(sugerencias):
+            await query.answer("Selección inválida", show_alert=True)
+            return
+
+        casa = sugerencias[idx]
+        user_states[user_id]["history"].append(user_states[user_id].copy())
+        user_states[user_id]["trabajo_casa"] = casa
+        user_states[user_id]["trabajo_esperando_casa_input"] = False
+
+        keyboard = [[InlineKeyboardButton(x, callback_data=f"trabajo_tipo_bono|{x}")]
+                    for x in TRABAJO_TIPOS_BONO]
+        keyboard.append(botones_navegacion())
+        await query.edit_message_text(
+            resumen_trabajo_parcial(user_states[user_id]) + "\n\n🎁 Tipo de bono:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    if data.startswith("trabajo_tipo_bono|"):
+        valor = data.split("|", 1)[1]
+        user_states[user_id]["history"].append(user_states[user_id].copy())
+        user_states[user_id]["trabajo_tipo_bono"] = valor
+
+        keyboard = [[InlineKeyboardButton(x, callback_data=f"trabajo_tipo_promo|{x}")]
+                    for x in TRABAJO_TIPOS_PROMO]
+        keyboard.append(botones_navegacion())
+        await query.edit_message_text(
+            resumen_trabajo_parcial(user_states[user_id]) + "\n\n🏷️ Tipo de promoción:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    if data.startswith("trabajo_tipo_promo|"):
+        valor = data.split("|", 1)[1]
+        user_states[user_id]["history"].append(user_states[user_id].copy())
+        user_states[user_id]["trabajo_tipo_promo"] = valor
+        user_states[user_id]["trabajo_esperando_observaciones"] = True
+        await query.edit_message_text(
+            resumen_trabajo_parcial(user_states[user_id]) +
+            "\n\n📝 Escribe condiciones y observaciones:"
         )
         return
         
@@ -1078,6 +1440,58 @@ async def button_handler(update, context):
     
         # Reconstruir pantalla automáticamente
         data_state = user_states[user_id]
+
+        if data_state.get("flujo") == "trabajo":
+            if "trabajo_tipo_promo" in data_state:
+                keyboard = [[InlineKeyboardButton(x, callback_data=f"trabajo_tipo_promo|{x}")]
+                            for x in TRABAJO_TIPOS_PROMO]
+                keyboard.append(botones_navegacion())
+                await query.edit_message_text(
+                    resumen_trabajo_parcial(data_state) + "\n\n🏷️ Tipo de promoción:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                return
+
+            if "trabajo_tipo_bono" in data_state:
+                keyboard = [[InlineKeyboardButton(x, callback_data=f"trabajo_tipo_bono|{x}")]
+                            for x in TRABAJO_TIPOS_BONO]
+                keyboard.append(botones_navegacion())
+                await query.edit_message_text(
+                    resumen_trabajo_parcial(data_state) + "\n\n🎁 Tipo de bono:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                return
+
+            if "trabajo_casa" in data_state or data_state.get("trabajo_esperando_casa_input"):
+                await query.edit_message_text(
+                    resumen_trabajo_parcial(data_state) +
+                    "\n\nEscribe la casa de apuestas (ej: RETA, WilliamHill, CasinoGranMadrid):"
+                )
+                return
+
+            if "trabajo_fecha" in data_state:
+                keyboard = [
+                    [InlineKeyboardButton("Hoy", callback_data="trabajo_fecha|hoy"),
+                     InlineKeyboardButton("Ayer", callback_data="trabajo_fecha|ayer")],
+                    [InlineKeyboardButton("Otra", callback_data="trabajo_fecha|otra")],
+                    botones_navegacion(),
+                ]
+                await query.edit_message_text(
+                    resumen_trabajo_parcial(data_state) + "\n\n📅 Selecciona fecha:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                return
+
+            if "trabajo_promotor" in data_state:
+                persona = data_state["trabajo_persona"]
+                keyboard = [[InlineKeyboardButton(p, callback_data=f"trabajo_promotor|{p}")]
+                            for p in TRABAJO_PROMOTORES[persona]]
+                keyboard.append(botones_navegacion())
+                await query.edit_message_text(
+                    f"💼 Trabajo · {persona}\n\n¿Quién hace la promoción?",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                return
     
         if "sub3" in data_state:
             await query.edit_message_text(
@@ -1468,4 +1882,3 @@ if __name__ == "__main__":
         webhook_url=f"{WEBHOOK_BASE_URL}/{TOKEN}",
         url_path=TOKEN,
     )
-

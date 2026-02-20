@@ -6,6 +6,7 @@ import re
 import unicodedata
 from difflib import SequenceMatcher
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -192,6 +193,67 @@ def botones_navegacion():
         InlineKeyboardButton("⬅ Volver", callback_data="back"),
         InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")
     ]
+
+
+def teclado_menu_principal():
+    return [
+        [InlineKeyboardButton("💰 Gestión de dinero", callback_data="menu|gestion")],
+        [InlineKeyboardButton("🛒 Lista de la compra", callback_data="menu|lista")],
+        [InlineKeyboardButton("💼 Trabajo", callback_data="menu|trabajo")],
+    ]
+
+
+def teclado_menu_gestion():
+    return [
+        [InlineKeyboardButton("➕ Añadir registro", callback_data="menu|add")],
+        [InlineKeyboardButton("📈 Ver resumen", callback_data="menu|resumen")],
+        [InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")],
+    ]
+
+
+def teclado_menu_lista():
+    return [
+        [InlineKeyboardButton("➕ Añadir", callback_data="lista|add")],
+        [InlineKeyboardButton("👁️ Ver", callback_data="lista|ver")],
+        [InlineKeyboardButton("❌ Borrar", callback_data="lista|borrar")],
+        [InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")],
+    ]
+
+
+def teclado_menu_trabajo():
+    return [
+        [InlineKeyboardButton("Claudia", callback_data="trabajo|Claudia")],
+        [InlineKeyboardButton("Ramon", callback_data="trabajo|Ramon")],
+        [InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")],
+    ]
+
+
+def registrar_mensaje_interactivo(user_id, query):
+    user_states[user_id]["ui_chat_id"] = query.message.chat_id
+    user_states[user_id]["ui_message_id"] = query.message.message_id
+
+
+async def actualizar_mensaje_flujo(update, context, user_id, texto, reply_markup=None):
+    estado = user_states.get(user_id, {})
+    chat_id = estado.get("ui_chat_id")
+    message_id = estado.get("ui_message_id")
+
+    if chat_id and message_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=texto,
+                reply_markup=reply_markup,
+            )
+            return
+        except BadRequest:
+            pass
+
+    sent_message = await update.message.reply_text(texto, reply_markup=reply_markup)
+    user_states.setdefault(user_id, {})["ui_chat_id"] = sent_message.chat_id
+    user_states[user_id]["ui_message_id"] = sent_message.message_id
+
 
 async def verificar_autorizacion(update, context):
     user = update.effective_user
@@ -550,29 +612,15 @@ def guardar_registro_trabajo(data):
 # =========================
 
 async def mostrar_menu(query):
-    keyboard = [
-        [InlineKeyboardButton("💰 Gestión de dinero", callback_data="menu|gestion")],
-        [InlineKeyboardButton("🛒 Lista de la compra", callback_data="menu|lista")],
-        [InlineKeyboardButton("💼 Trabajo", callback_data="menu|trabajo")]
-    ]
-
     await query.edit_message_text(
         "📲 Menú principal",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(teclado_menu_principal())
     )
 
 async def mostrar_menu_lista(query):
-
-    keyboard = [
-        [InlineKeyboardButton("➕ Añadir", callback_data="lista|add")],
-        [InlineKeyboardButton("👁️ Ver", callback_data="lista|ver")],
-        [InlineKeyboardButton("❌ Borrar", callback_data="lista|borrar")],
-        [InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]
-    ]
-
     await query.edit_message_text(
         "🛒 Lista de la compra",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(teclado_menu_lista())
     )
 
 async def mostrar_selector_meses(query):
@@ -605,16 +653,9 @@ async def start(update, context):
     if not await verificar_autorizacion(update, context):
         return
 
-    keyboard = [
-        [InlineKeyboardButton("💰 Gestión de dinero", callback_data="menu|gestion")],
-        [InlineKeyboardButton("🛒 Lista de la compra", callback_data="menu|lista")],
-        [InlineKeyboardButton("💼 Trabajo", callback_data="menu|trabajo")]
-    ]
-
     await update.message.reply_text(
         "📲 Menú principal",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+        reply_markup=InlineKeyboardMarkup(teclado_menu_principal())    )
 
 # =========================
 # RESUMEN
@@ -771,12 +812,11 @@ async def recibir_texto(update, context):
 
     if not await verificar_autorizacion(update, context):
         return
-    
-    user_id=update.effective_user.id
+        
     if user_id not in user_states:
         return
 
-    texto=update.message.text.strip()
+    texto = update.message.text.strip()
     
     # ================= TRABAJO =================
 
@@ -791,9 +831,11 @@ async def recibir_texto(update, context):
             return
 
         user_states[user_id]["trabajo_esperando_casa_input"] = True
-        await update.message.reply_text(
-            resumen_trabajo_parcial(user_states[user_id]) +
-            "\nEscribe la casa de apuestas (ej: RETA, WilliamHill, CasinoGranMadrid):"
+        await actualizar_mensaje_flujo(
+            update,
+            context,
+            user_id,
+            resumen_trabajo_parcial(user_states[user_id]) + "\nEscribe la casa de apuestas (ej: RETA, WilliamHill, CasinoGranMadrid):",
         )
         return
 
@@ -809,10 +851,12 @@ async def recibir_texto(update, context):
         ])
         keyboard.append(botones_navegacion())
 
-        await update.message.reply_text(
-            resumen_trabajo_parcial(user_states[user_id]) +
-            "\nSelecciona la casa correcta:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+        await actualizar_mensaje_flujo(
+            update,
+            context,
+            user_id,
+            resumen_trabajo_parcial(user_states[user_id]) + "\nSelecciona la casa correcta:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
         )
         return
 
@@ -821,8 +865,11 @@ async def recibir_texto(update, context):
         user_states[user_id]["trabajo_observaciones"] = texto
         user_states[user_id]["trabajo_esperando_observaciones"] = False
         user_states[user_id]["trabajo_esperando_partido"] = True
-        await update.message.reply_text(
-            resumen_trabajo_parcial(user_states[user_id]) + "\n✍️ Escribe el partido:"
+        await actualizar_mensaje_flujo(
+            update,
+            context,
+            user_id,
+            resumen_trabajo_parcial(user_states[user_id]) + "\n✍️ Escribe el partido:",
         )
         return
 
@@ -831,9 +878,11 @@ async def recibir_texto(update, context):
         user_states[user_id]["trabajo_partido"] = texto
         user_states[user_id]["trabajo_esperando_partido"] = False
         user_states[user_id]["trabajo_esperando_perdida"] = True
-        await update.message.reply_text(
-            resumen_trabajo_parcial(user_states[user_id]) +
-            "\n💸 Escribe la pérdida (acepta signo y coma/punto):"
+        await actualizar_mensaje_flujo(
+            update,
+            context,
+            user_id,
+            resumen_trabajo_parcial(user_states[user_id]) + "\n💸 Escribe la pérdida (acepta signo y coma/punto):",
         )
         return
 
@@ -848,9 +897,11 @@ async def recibir_texto(update, context):
         user_states[user_id]["trabajo_perdida"] = valor
         user_states[user_id]["trabajo_esperando_perdida"] = False
         user_states[user_id]["trabajo_esperando_beneficio"] = True
-        await update.message.reply_text(
-            resumen_trabajo_parcial(user_states[user_id]) +
-            "\n💰 Escribe el beneficio (acepta signo y coma/punto):"
+        await actualizar_mensaje_flujo(
+            update,
+            context,
+            user_id,
+            resumen_trabajo_parcial(user_states[user_id]) + "\n💰 Escribe el beneficio (acepta signo y coma/punto):",
         )
         return
 
@@ -866,112 +917,126 @@ async def recibir_texto(update, context):
         user_states[user_id]["trabajo_esperando_beneficio"] = False
 
         guardar_registro_trabajo(user_states[user_id])
-        await update.message.reply_text("✅ Registro de trabajo guardado en PromosDone.")
-        user_states.pop(user_id, None)
+        await actualizar_mensaje_flujo(
+            update,
+            context,
+            user_id,
+            "✅ Registro de trabajo guardado en PromosDone.\n\n💼 Trabajo",
+            reply_markup=InlineKeyboardMarkup(teclado_menu_trabajo()),
+        )
+        user_states[user_id] = {
+            "ui_chat_id": user_states[user_id].get("ui_chat_id"),
+            "ui_message_id": user_states[user_id].get("ui_message_id"),
+        }
         return
 
-       # ================= LISTA COMPRA =================
-
+    # ================= LISTA COMPRA =================
+    
     if user_states[user_id].get("esperando_lista_productos"):
-    
+        
         supermercado = user_states[user_id]["lista_supermercado"]
-    
+        
         productos = [p.strip() for p in texto.split(",") if p.strip()]
-    
+        
         if not productos:
             await update.message.reply_text("No se detectaron productos.")
             return
-    
+            
         hoja = {
             "Carrefour": sheet_carrefour,
             "Mercadona": sheet_mercadona,
             "Sirena": sheet_sirena,
             "Otros": sheet_otros
         }[supermercado]
-    
+        
         for producto in productos:
             hoja.append_row([producto])
-    
-        # Limpiar estado
-        user_states.pop(user_id)
-        
-        # 🔔 Notificar lista actualizada
+            
         await notificar_lista_actualizada(context)
-        
-        # 🔙 Volver al menú lista
-        await update.message.reply_text("🛒 Lista actualizada correctamente.")
-        
-        # Enviar menú lista como nuevo mensaje con botones
-        keyboard = [
-            [InlineKeyboardButton("➕ Añadir", callback_data="lista|add")],
-            [InlineKeyboardButton("👁️ Ver", callback_data="lista|ver")],
-            [InlineKeyboardButton("❌ Borrar", callback_data="lista|borrar")],
-            [InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]
-        ]
-        
-        await update.message.reply_text(
-            "🛒 Lista de la compra",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+        await actualizar_mensaje_flujo(
+            update,
+            context,
+            user_id,
+            "🛒 Lista actualizada correctamente.\n\n🛒 Lista de la compra",
+            reply_markup=InlineKeyboardMarkup(teclado_menu_lista()),
         )
-    
+
+        user_states[user_id] = {
+            "ui_chat_id": user_states[user_id].get("ui_chat_id"),
+            "ui_message_id": user_states[user_id].get("ui_message_id"),
+        }
         return
 
     # FECHA MANUAL
     if user_states[user_id].get("esperando_fecha_manual"):
         try:
-            fecha=datetime.strptime(texto,"%d/%m/%Y")
+            fecha = datetime.strptime(texto, "%d/%m/%Y")
             user_states[user_id]["history"].append(user_states[user_id].copy())
-            user_states[user_id]["fecha"]=fecha.strftime("%d/%m/%Y")
-            user_states[user_id]["esperando_fecha_manual"]=False
-        except:
+            user_states[user_id]["fecha"] = fecha.strftime("%d/%m/%Y")
+            user_states[user_id]["esperando_fecha_manual"] = False
+        except ValueError:
             await update.message.reply_text("❌ Fecha inválida. Usa DD/MM/YYYY")
             return
 
-        personas=get_personas_gasto()
-        keyboard=[[InlineKeyboardButton(p,callback_data=f"persona|{p}")]
-                  for p in personas]
+        personas = get_personas_gasto()
+        keyboard = [[InlineKeyboardButton(p, callback_data=f"persona|{p}")]
+                    for p in personas]
         keyboard.append(botones_navegacion())
 
-        await update.message.reply_text(
-            resumen_parcial(user_states[user_id])+"\n¿De quién es el gasto?",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+        await actualizar_mensaje_flujo(
+            update,
+            context,
+            user_id,
+            resumen_parcial(user_states[user_id]) + "\n¿De quién es el gasto?",
+            reply_markup=InlineKeyboardMarkup(keyboard),
         )
         return
 
     # OBSERVACION
     if user_states[user_id].get("esperando_observacion_texto"):
-        user_states[user_id]["observacion"]=texto
-        user_states[user_id]["esperando_observacion_texto"]=False
-        user_states[user_id]["esperando_importe"]=True
-        await update.message.reply_text("💰 Escribe el importe:")
+        user_states[user_id]["observacion"] = texto
+        user_states[user_id]["esperando_observacion_texto"] = False
+        user_states[user_id]["esperando_importe"] = True
+        await actualizar_mensaje_flujo(update, context, user_id, "💰 Escribe el importe:")
         return
 
     # IMPORTE
     if user_states[user_id].get("esperando_importe"):
         try:
-            importe=float(texto.replace(",","."))
-            if importe<=0: raise ValueError
-        except:
+            importe = float(texto.replace(",", "."))
+            if importe <= 0:
+                raise ValueError
+        except ValueError:
             await update.message.reply_text("❌ Importe no válido.")
             return
 
-        data=user_states[user_id]
+        data = user_states[user_id]
 
         sheet.append_row([
             formatear_fecha_para_sheet(data.get("fecha", "")),
-            data.get("persona",""),
-            data.get("pagador",""),
-            data.get("tipo",""),
-            data.get("categoria",""),
-            data.get("sub1","—"),
-            data.get("sub2","—"),
-            data.get("sub3","—"),
-            data.get("observacion",""),
+            data.get("persona", ""),
+            data.get("pagador", ""),
+            data.get("tipo", ""),
+            data.get("categoria", ""),
+            data.get("sub1", "—"),
+            data.get("sub2", "—"),
+            data.get("sub3", "—"),
+            data.get("observacion", ""),
             importe
         ], value_input_option="USER_ENTERED")
 
-        await update.message.reply_text("✅ Movimiento guardado correctamente.")
-        user_states.pop(user_id)
+        await actualizar_mensaje_flujo(
+            update,
+            context,
+            user_id,
+            "✅ Movimiento guardado correctamente.\n\n💰 Gestión de dinero",
+            reply_markup=InlineKeyboardMarkup(teclado_menu_gestion()),
+        )
+        user_states[user_id] = {
+            "ui_chat_id": user_states[user_id].get("ui_chat_id"),
+            "ui_message_id": user_states[user_id].get("ui_message_id"),
+        }
+
 
 # =========================
 # BOTONES
@@ -992,6 +1057,8 @@ async def button_handler(update, context):
     if user_id not in user_states:
         user_states[user_id]={}
 
+    registrar_mensaje_interactivo(user_id, query)
+    
     # CANCELAR
     if data=="cancelar":
         user_states.pop(user_id,None)
@@ -1004,16 +1071,9 @@ async def button_handler(update, context):
         return
     # MENU TRABAJO
     if data == "menu|trabajo":
-
-        keyboard = [
-            [InlineKeyboardButton("Claudia", callback_data="trabajo|Claudia")],
-            [InlineKeyboardButton("Ramon", callback_data="trabajo|Ramon")],
-            [InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]
-        ]
-    
         await query.edit_message_text(
             "💼 Trabajo",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=InlineKeyboardMarkup(teclado_menu_trabajo())
         )
         return
 
@@ -1026,6 +1086,8 @@ async def button_handler(update, context):
             "history": [],
             "flujo": "trabajo",
             "trabajo_persona": persona,
+            "ui_chat_id": query.message.chat_id,
+            "ui_message_id": query.message.message_id,
         }
 
         user_states[user_id]["trabajo_promotores"] = []
@@ -1152,16 +1214,9 @@ async def button_handler(update, context):
         
     # MENU GESTIÓN
     if data == "menu|gestion":
-
-        keyboard = [
-            [InlineKeyboardButton("➕ Añadir registro", callback_data="menu|add")],
-            [InlineKeyboardButton("📈 Ver resumen", callback_data="menu|resumen")],
-            [InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]
-        ]
-    
         await query.edit_message_text(
             "💰 Gestión de dinero",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=InlineKeyboardMarkup(teclado_menu_gestion())
         )
         return
 
@@ -1170,7 +1225,9 @@ async def button_handler(update, context):
         
         # 🔴 RESETEAR ESTADO COMPLETAMENTE
         user_states[user_id] = {
-            "history": []
+            "history": [],
+            "ui_chat_id": query.message.chat_id,
+            "ui_message_id": query.message.message_id,
         }
     
         keyboard=[
@@ -1672,17 +1729,9 @@ async def button_handler(update, context):
     # ================= MENU LISTA =================
     
     if data == "menu|lista":
-    
-        keyboard = [
-            [InlineKeyboardButton("➕ Añadir", callback_data="lista|add")],
-            [InlineKeyboardButton("👁️ Ver", callback_data="lista|ver")],
-            [InlineKeyboardButton("❌ Borrar", callback_data="lista|borrar")],
-            [InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")]
-        ]
-    
         await query.edit_message_text(
             "🛒 Lista de la compra",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=InlineKeyboardMarkup(teclado_menu_lista())
         )
         return
 
@@ -1708,7 +1757,9 @@ async def button_handler(update, context):
     
         user_states[user_id] = {
             "lista_supermercado": supermercado,
-            "esperando_lista_productos": True
+            "esperando_lista_productos": True,
+            "ui_chat_id": query.message.chat_id,
+            "ui_message_id": query.message.message_id,
         }
     
         await query.edit_message_text(
@@ -1774,7 +1825,7 @@ async def button_handler(update, context):
                 hoja.batch_clear([f"A2:A{filas}"])
                 
         await notificar_lista_actualizada(context)
-        await mostrar_menu(query)
+        await mostrar_menu_lista(query)
         return
 
     if data.startswith("lista_borrar|"):
@@ -1797,7 +1848,9 @@ async def button_handler(update, context):
         user_states[user_id] = {
             "modo_borrado": True,
             "supermercado": supermercado,
-            "seleccionados": set()
+            "seleccionados": set(),
+            "ui_chat_id": query.message.chat_id,
+            "ui_message_id": query.message.message_id,
         }
     
         keyboard = []
@@ -1852,7 +1905,7 @@ async def button_handler(update, context):
     
         await query.answer("Lista borrada ✅")
         await notificar_lista_actualizada(context)
-        await mostrar_menu(query)
+        await mostrar_menu_lista(query)
         return
 
     if data.startswith("lista_toggle|"):
@@ -1926,7 +1979,7 @@ async def button_handler(update, context):
     
         await query.answer("Productos eliminados ✅")
         await notificar_lista_actualizada(context)
-        await mostrar_menu(query)
+        await mostrar_menu_lista(query)
         return
 
 

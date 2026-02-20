@@ -1,5 +1,7 @@
 import os
 import json
+import logging
+import time
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -12,25 +14,51 @@ from datetime import datetime, timedelta
 from google.oauth2.service_account import Credentials
 import gspread
 
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # =========================
 # VARIABLES
 # =========================
 
-TOKEN = os.environ.get("BOT_TOKEN")
-SHEET_NAME = os.environ.get("SPREADSHEET_NAME")
-SHEET_NAME_LISTA_COMPRA = os.environ.get("SPREADSHEET_NAME_LISTA_COMPRA")
+def get_required_env(name):
+    value = os.environ.get(name)
+    if value is None or str(value).strip() == "":
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
+
+
+def parse_authorized_users(raw):
+    users = set()
+    for uid in raw.split(","):
+        uid = uid.strip()
+        if not uid:
+            continue
+        try:
+            users.add(int(uid))
+        except ValueError as e:
+            raise RuntimeError(f"Invalid AUTHORIZED_USERS id: {uid}") from e
+    return users
+
+
+TOKEN = get_required_env("BOT_TOKEN")
+SHEET_NAME = get_required_env("SPREADSHEET_NAME")
+SHEET_NAME_LISTA_COMPRA = get_required_env("SPREADSHEET_NAME_LISTA_COMPRA")
 PORT = int(os.environ.get("PORT", 10000))
+WEBHOOK_BASE_URL = os.environ.get(
+    "WEBHOOK_BASE_URL",
+    "https://gestion-dinero-bot.onrender.com"
+).rstrip("/")
 
 # =========================
 # USUARIOS AUTORIZADOS
 # =========================
 
-AUTHORIZED_USERS = set(
-    int(uid) for uid in os.environ.get("AUTHORIZED_USERS", "").split(",") if uid
-)
+AUTHORIZED_USERS = parse_authorized_users(get_required_env("AUTHORIZED_USERS"))
 
 
-ADMIN_ID = int(os.environ.get("ADMIN_ID"))
+ADMIN_ID = int(get_required_env("ADMIN_ID"))
 
 # =========================
 # GOOGLE SHEETS
@@ -41,8 +69,11 @@ scope = [
     "https://www.googleapis.com/auth/drive",
 ]
 
-creds_json = os.environ.get("GOOGLE_CREDENTIALS")
-creds_dict = json.loads(creds_json)
+creds_json = get_required_env("GOOGLE_CREDENTIALS")
+try:
+    creds_dict = json.loads(creds_json)
+except json.JSONDecodeError as e:
+    raise RuntimeError("GOOGLE_CREDENTIALS is not valid JSON") from e
 
 credentials = Credentials.from_service_account_info(
     creds_dict,
@@ -71,6 +102,12 @@ sheet_otros = lista_spreadsheet.worksheet("Otros")
 # =========================
 
 user_states = {}
+
+LISTAS_CACHE_SECONDS = 60
+_listas_cache = {
+    "data": None,
+    "expires_at": 0.0,
+}
 
 # =========================
 # FUNCIONES AUXILIARES
@@ -219,22 +256,33 @@ def get_quien_paga():
     valores = listas_sheet.col_values(20)[1:4]
     return [v for v in valores if v and v != "—"]
 
-def get_tipos():
+
+def get_listas_data():
+    now = time.monotonic()
+    if _listas_cache["data"] is not None and now < _listas_cache["expires_at"]:
+        return _listas_cache["data"]
+        
     data = listas_sheet.get_all_values()[1:]
+    _listas_cache["data"] = data
+    _listas_cache["expires_at"] = now + LISTAS_CACHE_SECONDS
+    return data
+
+def get_tipos():
+    data = get_listas_data()
     return sorted(set(row[0] for row in data if row[0] and row[0] != "—"))
 
 def get_categorias(tipo):
-    data = listas_sheet.get_all_values()[1:]
+    data = get_listas_data()
     return sorted(set(row[1] for row in data
                       if row[0]==tipo and row[1] and row[1]!="—"))
 
 def get_sub1(tipo, categoria):
-    data = listas_sheet.get_all_values()[1:]
+    data = get_listas_data()
     return sorted(set(row[2] for row in data
                       if row[0]==tipo and row[1]==categoria and row[2]!="—"))
 
 def get_sub2(tipo, categoria, sub1):
-    data = listas_sheet.get_all_values()[1:]
+    data = get_listas_data()
     sub2_set = set()
 
     for row in data:
@@ -253,7 +301,7 @@ def get_sub2(tipo, categoria, sub1):
     return sorted(sub2_set)
 
 def get_sub3(tipo, categoria, sub1, sub2):
-    data = listas_sheet.get_all_values()[1:]
+    data = get_listas_data()
     sub3_set = set()
 
     for row in data:
@@ -480,7 +528,8 @@ def get_objetivos_mes_actual():
                 "real": real
             }
 
-        except:
+        except (IndexError, ValueError, AttributeError) as e:
+            logger.warning("Fila de objetivos inválida y omitida: %s", e)
             continue
 
     return objetivos
@@ -1230,7 +1279,7 @@ async def button_handler(update, context):
 
     if data == "lista_borrar|todo":
 
-        for hoja in [sheet_carrefour, sheet_mercadona, sheet_sirena]:
+        for hoja in [sheet_carrefour, sheet_mercadona, sheet_sirena, sheet_otros]:
     
             filas = hoja.row_count
     
@@ -1416,9 +1465,7 @@ if __name__ == "__main__":
     application.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        webhook_url=f"https://gestion-dinero-bot.onrender.com/{TOKEN}",
+        webhook_url=f"{WEBHOOK_BASE_URL}/{TOKEN}",
         url_path=TOKEN,
     )
-
-
 

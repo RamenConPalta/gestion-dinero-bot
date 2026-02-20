@@ -228,6 +228,26 @@ def teclado_menu_trabajo():
     ]
 
 
+async def desplazar_menu_principal_al_final(context, user_id):
+    estado = user_states.get(user_id, {})
+    chat_id = estado.get("ui_chat_id")
+    message_id = estado.get("ui_message_id")
+
+    if chat_id and message_id:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except BadRequest:
+            pass
+
+    sent_message = await context.bot.send_message(
+        chat_id=user_id,
+        text="📲 Menú principal",
+        reply_markup=InlineKeyboardMarkup(teclado_menu_principal()),
+    )
+    user_states.setdefault(user_id, {})["ui_chat_id"] = sent_message.chat_id
+    user_states[user_id]["ui_message_id"] = sent_message.message_id
+
+
 def registrar_mensaje_interactivo(user_id, query):
     user_states[user_id]["ui_chat_id"] = query.message.chat_id
     user_states[user_id]["ui_message_id"] = query.message.message_id
@@ -240,13 +260,10 @@ async def actualizar_mensaje_flujo(update, context, user_id, texto, reply_markup
 
     if chat_id and message_id:
         try:
-            await context.bot.edit_message_text(
+            await context.bot.delete_message(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=texto,
-                reply_markup=reply_markup,
             )
-            return
         except BadRequest:
             pass
 
@@ -357,8 +374,8 @@ def obtener_lista_completa():
 
     return mensaje
 
-async def notificar_lista_actualizada(context):
-
+async def notificar_lista_actualizada(context, mover_menu=False):
+    
     mensaje_lista = obtener_lista_completa()
 
     for user_id_aut in AUTHORIZED_USERS:
@@ -367,6 +384,8 @@ async def notificar_lista_actualizada(context):
                 chat_id=user_id_aut,
                 text=mensaje_lista
             )
+            if mover_menu:
+                await desplazar_menu_principal_al_final(context, user_id_aut)
         except Exception as e:
             print("Error enviando lista a", user_id_aut, e)
 # =========================
@@ -812,7 +831,13 @@ async def recibir_texto(update, context):
 
     if not await verificar_autorizacion(update, context):
         return
-        
+
+    if update.message:
+        try:
+            await update.message.delete()
+        except BadRequest:
+            pass
+    
     if user_id not in user_states:
         return
 
@@ -952,7 +977,7 @@ async def recibir_texto(update, context):
         for producto in productos:
             hoja.append_row([producto])
             
-        await notificar_lista_actualizada(context)
+        await notificar_lista_actualizada(context, mover_menu=True)
         await actualizar_mensaje_flujo(
             update,
             context,

@@ -147,7 +147,7 @@ trabajo_spreadsheets = {
 }
 
 trabajo_promos_sheets = {
-    persona: book.worksheet("Promos Done")
+    persona: book.worksheet("PromosDone")
     for persona, book in trabajo_spreadsheets.items()
 }
 
@@ -811,7 +811,7 @@ async def recibir_texto(update, context):
         user_states[user_id]["trabajo_esperando_beneficio"] = False
 
         guardar_registro_trabajo(user_states[user_id])
-        await update.message.reply_text("✅ Registro de trabajo guardado en Promos Done.")
+        await update.message.reply_text("✅ Registro de trabajo guardado en PromosDone.")
         user_states.pop(user_id, None)
         return
 

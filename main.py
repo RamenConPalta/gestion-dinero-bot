@@ -385,6 +385,7 @@ def get_sub3(tipo, categoria, sub1, sub2):
 
 def resumen_trabajo_parcial(data):
     campos = [
+        ("trabajo_promotores", "Promotores"),
         ("trabajo_promotor", "Promotor"),
         ("trabajo_fecha", "Fecha"),
         ("trabajo_casa", "Casa"),
@@ -398,9 +399,34 @@ def resumen_trabajo_parcial(data):
 
     texto = ""
     for key, label in campos:
+        if key == "trabajo_promotor" and data.get("trabajo_promotores"):
+            continue
         if key in data:
-            texto += f"{label}: {data[key]} ✅\n"
+            valor = data[key]
+            if key == "trabajo_promotores" and isinstance(valor, list):
+                valor = ", ".join(valor)
+            texto += f"{label}: {valor} ✅\n"
     return texto
+
+
+def construir_teclado_promotores(persona, seleccionados):
+    seleccionados_set = set(seleccionados)
+    keyboard = []
+
+    for promotor in TRABAJO_PROMOTORES[persona]:
+        marca = "✅" if promotor in seleccionados_set else "⬜"
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{marca} {promotor}",
+                callback_data=f"trabajo_promotor_toggle|{promotor}",
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton("➡️ Continuar", callback_data="trabajo_promotor_confirmar")
+    ])
+    keyboard.append(botones_navegacion())
+    return keyboard
 
 
 def normalizar_texto(valor):
@@ -489,18 +515,35 @@ def guardar_registro_trabajo(data):
     persona = data["trabajo_persona"]
     hoja = trabajo_promos_sheets[persona]
 
-    fila = [""] * 17
-    fila[0] = data.get("trabajo_promotor", "")
-    fila[1] = formatear_fecha_para_sheet(data.get("trabajo_fecha", ""))
-    fila[2] = data.get("trabajo_casa", "")
-    fila[3] = data.get("trabajo_tipo_bono", "")
-    fila[4] = data.get("trabajo_tipo_promo", "")
-    fila[5] = data.get("trabajo_observaciones", "")
-    fila[6] = data.get("trabajo_partido", "")
-    fila[15] = data.get("trabajo_perdida", 0)
-    fila[16] = data.get("trabajo_beneficio", 0)
+    promotores = data.get("trabajo_promotores") or [data.get("trabajo_promotor", "")]
+    promotores = [p for p in promotores if p]
 
-    hoja.append_row(fila, value_input_option="USER_ENTERED")
+    for promotor in promotores:
+        fila = [""] * 17
+        fila[0] = promotor
+        fila[1] = formatear_fecha_para_sheet(data.get("trabajo_fecha", ""))
+        fila[2] = data.get("trabajo_casa", "")
+        fila[3] = data.get("trabajo_tipo_bono", "")
+        fila[4] = data.get("trabajo_tipo_promo", "")
+        fila[5] = data.get("trabajo_observaciones", "")
+        fila[6] = data.get("trabajo_partido", "")
+        fila[15] = data.get("trabajo_perdida", 0)
+        fila[16] = data.get("trabajo_beneficio", 0)
+
+        valores_columna_a = hoja.get("A:A")
+        fila_destino = len(valores_columna_a) + 1
+
+        for idx, row in enumerate(valores_columna_a, start=1):
+            celda = row[0].strip() if row and row[0] else ""
+            if not celda:
+                fila_destino = idx
+                break
+
+        hoja.update(
+            f"A{fila_destino}:Q{fila_destino}",
+            [fila],
+            value_input_option="USER_ENTERED",
+        )
 
 # =========================
 # MENU
@@ -985,10 +1028,8 @@ async def button_handler(update, context):
             "trabajo_persona": persona,
         }
 
-        promotores = TRABAJO_PROMOTORES[persona]
-        keyboard = [[InlineKeyboardButton(p, callback_data=f"trabajo_promotor|{p}")]
-                    for p in promotores]
-        keyboard.append(botones_navegacion())
+        user_states[user_id]["trabajo_promotores"] = []
+        keyboard = construir_teclado_promotores(persona, [])
     
         await query.edit_message_text(
             f"💼 Trabajo · {persona}\n\n¿Quién hace la promoción?",
@@ -996,10 +1037,31 @@ async def button_handler(update, context):
         )
         return
 
-    if data.startswith("trabajo_promotor|"):
+    if data.startswith("trabajo_promotor_toggle|"):
         promotor = data.split("|", 1)[1]
+        persona = user_states[user_id]["trabajo_persona"]
+        seleccionados = user_states[user_id].setdefault("trabajo_promotores", [])
+
+        if promotor in seleccionados:
+            seleccionados.remove(promotor)
+        else:
+            seleccionados.append(promotor)
+
+        keyboard = construir_teclado_promotores(persona, seleccionados)
+        await query.edit_message_text(
+            f"💼 Trabajo · {persona}\n\nSelecciona uno o varios promotores y pulsa Continuar:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    if data == "trabajo_promotor_confirmar":
+        seleccionados = user_states[user_id].get("trabajo_promotores", [])
+        if not seleccionados:
+            await query.answer("Selecciona al menos un promotor", show_alert=True)
+            return
+
         user_states[user_id]["history"].append(user_states[user_id].copy())
-        user_states[user_id]["trabajo_promotor"] = promotor
+        user_states[user_id]["trabajo_promotor"] = seleccionados[0]
 
         keyboard = [
             [InlineKeyboardButton("Hoy", callback_data="trabajo_fecha|hoy"),
@@ -1494,11 +1556,10 @@ async def button_handler(update, context):
                 )
                 return
 
-            if "trabajo_promotor" in data_state:
+            if "trabajo_promotor" in data_state or data_state.get("trabajo_promotores"):
                 persona = data_state["trabajo_persona"]
-                keyboard = [[InlineKeyboardButton(p, callback_data=f"trabajo_promotor|{p}")]
-                            for p in TRABAJO_PROMOTORES[persona]]
-                keyboard.append(botones_navegacion())
+                seleccionados = data_state.get("trabajo_promotores", [])
+                keyboard = construir_teclado_promotores(persona, seleccionados)
                 await query.edit_message_text(
                     f"💼 Trabajo · {persona}\n\n¿Quién hace la promoción?",
                     reply_markup=InlineKeyboardMarkup(keyboard)

@@ -481,10 +481,11 @@ def resumen_trabajo_parcial(data):
         ("trabajo_casa", "Casa"),
         ("trabajo_tipo_bono", "Tipo bono"),
         ("trabajo_tipo_promo", "Tipo promo"),
-        ("trabajo_observaciones", "Observaciones"),
+        ("trabajo_observaciones", "Condiciones"),
         ("trabajo_partido", "Partido"),
         ("trabajo_perdida", "Pérdida"),
         ("trabajo_beneficio", "Beneficio"),
+        ("trabajo_observaciones_finales", "Observaciones"),
     ]
 
     texto = ""
@@ -609,7 +610,7 @@ def guardar_registro_trabajo(data):
     promotores = [p for p in promotores if p]
 
     for promotor in promotores:
-        fila = [""] * 17
+        fila = [""] * 19
         fila[0] = promotor
         fila[1] = formatear_fecha_para_sheet(data.get("trabajo_fecha", ""))
         fila[2] = data.get("trabajo_casa", "")
@@ -619,6 +620,7 @@ def guardar_registro_trabajo(data):
         fila[6] = data.get("trabajo_partido", "")
         fila[15] = data.get("trabajo_perdida", 0)
         fila[16] = data.get("trabajo_beneficio", 0)
+        fila[18] = data.get("trabajo_observaciones_finales", "")
 
         valores_columna_a = hoja.get("A:A")
         fila_destino = len(valores_columna_a) + 1
@@ -630,7 +632,7 @@ def guardar_registro_trabajo(data):
                 break
 
         hoja.update(
-            f"A{fila_destino}:Q{fila_destino}",
+            f"A{fila_destino}:S{fila_destino}",
             [fila],
             value_input_option="USER_ENTERED",
         )
@@ -899,11 +901,16 @@ async def recibir_texto(update, context):
         user_states[user_id]["trabajo_observaciones"] = texto
         user_states[user_id]["trabajo_esperando_observaciones"] = False
         user_states[user_id]["trabajo_esperando_partido"] = True
+        keyboard = [
+            [InlineKeyboardButton("⏭️ Saltar paso", callback_data="trabajo_skip|partido")],
+            botones_navegacion(),
+        ]
         await actualizar_mensaje_flujo(
             update,
             context,
             user_id,
             resumen_trabajo_parcial(user_states[user_id]) + "\n✍️ Escribe el partido:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
         )
         return
 
@@ -912,6 +919,11 @@ async def recibir_texto(update, context):
         user_states[user_id]["trabajo_partido"] = texto
         user_states[user_id]["trabajo_esperando_partido"] = False
         user_states[user_id]["trabajo_esperando_perdida"] = True
+        keyboard = [
+            [InlineKeyboardButton("⏭️ Saltar paso", callback_data="trabajo_skip|perdida")],
+            botones_navegacion(),
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        ]
         await actualizar_mensaje_flujo(
             update,
             context,
@@ -931,11 +943,16 @@ async def recibir_texto(update, context):
         user_states[user_id]["trabajo_perdida"] = valor
         user_states[user_id]["trabajo_esperando_perdida"] = False
         user_states[user_id]["trabajo_esperando_beneficio"] = True
+        keyboard = [
+            [InlineKeyboardButton("⏭️ Saltar paso", callback_data="trabajo_skip|beneficio")],
+            botones_navegacion(),
+        ]
         await actualizar_mensaje_flujo(
             update,
             context,
             user_id,
             resumen_trabajo_parcial(user_states[user_id]) + "\n💰 Escribe el beneficio (acepta signo y coma/punto):",
+            reply_markup=InlineKeyboardMarkup(keyboard),
         )
         return
 
@@ -949,6 +966,19 @@ async def recibir_texto(update, context):
         user_states[user_id]["history"].append(user_states[user_id].copy())
         user_states[user_id]["trabajo_beneficio"] = valor
         user_states[user_id]["trabajo_esperando_beneficio"] = False
+        user_states[user_id]["trabajo_esperando_observaciones_finales"] = True
+        await actualizar_mensaje_flujo(
+            update,
+            context,
+            user_id,
+            resumen_trabajo_parcial(user_states[user_id]) + "\n📝 Escribe observaciones finales (se guardan en columna S):",
+        )
+        return
+
+    if user_states[user_id].get("trabajo_esperando_observaciones_finales"):
+        user_states[user_id]["history"].append(user_states[user_id].copy())
+        user_states[user_id]["trabajo_observaciones_finales"] = texto
+        user_states[user_id]["trabajo_esperando_observaciones_finales"] = False
 
         guardar_registro_trabajo(user_states[user_id])
 
@@ -1161,7 +1191,7 @@ async def button_handler(update, context):
 
         keyboard = construir_teclado_promotores(persona, seleccionados)
         await query.edit_message_text(
-            f"💼 Trabajo · {persona}\n\nSelecciona uno o varios promotores y pulsa Continuar:",
+            f"💼 Trabajo · {persona}\n\n¿Quién hace la promoción?",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
@@ -1210,6 +1240,7 @@ async def button_handler(update, context):
         return
 
     if data == "trabajo_casa_reintentar":
+        user_states[user_id]["trabajo_esperando_casa_input"] = True
         await query.edit_message_text(
             resumen_trabajo_parcial(user_states[user_id]) +
             "\n\nEscribe de nuevo la casa de apuestas:"
@@ -1258,9 +1289,55 @@ async def button_handler(update, context):
         user_states[user_id]["trabajo_esperando_observaciones"] = True
         await query.edit_message_text(
             resumen_trabajo_parcial(user_states[user_id]) +
-            "\n\n📝 Escribe condiciones y observaciones:"
+            "\n\n📝 Escribe condiciones de la promo:"
         )
         return
+
+    if data.startswith("trabajo_skip|"):
+        paso = data.split("|", 1)[1]
+
+        if paso == "partido" and user_states[user_id].get("trabajo_esperando_partido"):
+            user_states[user_id]["history"].append(user_states[user_id].copy())
+            user_states[user_id]["trabajo_partido"] = ""
+            user_states[user_id]["trabajo_esperando_partido"] = False
+            user_states[user_id]["trabajo_esperando_perdida"] = True
+            keyboard = [
+                [InlineKeyboardButton("⏭️ Saltar paso", callback_data="trabajo_skip|perdida")],
+                botones_navegacion(),
+            ]
+            await query.edit_message_text(
+                resumen_trabajo_parcial(user_states[user_id]) +
+                "\n\n💸 Escribe la pérdida (acepta signo y coma/punto):",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
+            return
+
+        if paso == "perdida" and user_states[user_id].get("trabajo_esperando_perdida"):
+            user_states[user_id]["history"].append(user_states[user_id].copy())
+            user_states[user_id]["trabajo_perdida"] = ""
+            user_states[user_id]["trabajo_esperando_perdida"] = False
+            user_states[user_id]["trabajo_esperando_beneficio"] = True
+            keyboard = [
+                [InlineKeyboardButton("⏭️ Saltar paso", callback_data="trabajo_skip|beneficio")],
+                botones_navegacion(),
+            ]
+            await query.edit_message_text(
+                resumen_trabajo_parcial(user_states[user_id]) +
+                "\n\n💰 Escribe el beneficio (acepta signo y coma/punto):",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
+            return
+
+        if paso == "beneficio" and user_states[user_id].get("trabajo_esperando_beneficio"):
+            user_states[user_id]["history"].append(user_states[user_id].copy())
+            user_states[user_id]["trabajo_beneficio"] = ""
+            user_states[user_id]["trabajo_esperando_beneficio"] = False
+            user_states[user_id]["trabajo_esperando_observaciones_finales"] = True
+            await query.edit_message_text(
+                resumen_trabajo_parcial(user_states[user_id]) +
+                "\n\n📝 Escribe observaciones finales (se guardan en columna S):"
+            )
+            return
         
     # MENU GESTIÓN
     if data == "menu|gestion":
@@ -1880,6 +1957,13 @@ async def button_handler(update, context):
                 
         await notificar_lista_actualizada(context)
         await mostrar_menu_lista(query)
+        await notificar_lista_actualizada(context, mover_menu=True)
+        await desplazar_menu_al_final(
+            context,
+            user_id,
+            "🛒 Lista de la compra",
+            teclado_menu_lista(),
+        )
         return
 
     if data.startswith("lista_borrar|"):
@@ -1958,8 +2042,13 @@ async def button_handler(update, context):
             hoja.batch_clear([f"A2:A{filas_con_datos}"])
     
         await query.answer("Lista borrada ✅")
-        await notificar_lista_actualizada(context)
-        await mostrar_menu_lista(query)
+        await notificar_lista_actualizada(context, mover_menu=True)
+        await desplazar_menu_al_final(
+            context,
+            user_id,
+            "🛒 Lista de la compra",
+            teclado_menu_lista(),
+        )
         return
 
     if data.startswith("lista_toggle|"):
@@ -2032,8 +2121,13 @@ async def button_handler(update, context):
         user_states.pop(user_id)
     
         await query.answer("Productos eliminados ✅")
-        await notificar_lista_actualizada(context)
-        await mostrar_menu_lista(query)
+        await notificar_lista_actualizada(context, mover_menu=True)
+        await desplazar_menu_al_final(
+            context,
+            user_id,
+            "🛒 Lista de la compra",
+            teclado_menu_lista(),
+        )
         return
 
 

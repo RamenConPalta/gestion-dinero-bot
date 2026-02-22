@@ -17,8 +17,6 @@ from telegram.ext import (
 from datetime import datetime, timedelta
 from google.oauth2.service_account import Credentials
 import gspread
-from gspread.utils import rowcol_to_a1
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,28 +29,6 @@ TRABAJO_SPREADSHEETS = {
 TRABAJO_PROMOTORES = {
     "Claudia": ["CGP", "RFB", "AFD", "MLC", "RGM"],
     "Ramon": ["RCM", "RCN", "DMC", "TBG", "AAL", "JCM", "JPT", "RGP", "JPC", "JJA"],
-}
-
-TRABAJO_GASTOS_COLUMNAS = {
-    "Ramon": {
-        "RCM": "AS",
-        "RCN": "AY",
-        "DMC": "BE",
-        "TBG": "BK",
-        "AAL": "BQ",
-        "JCM": "BW",
-        "JPT": "CC",
-        "RGP": "CI",
-        "JPC": "CO",
-        "JJA": "CU",
-    },
-    "Claudia": {
-        "CGP": "AV",
-        "RFB": "BB",
-        "AFD": "BH",
-        "MLC": "BN",
-        "RGM": "BT",
-    },
 }
 
 TRABAJO_TIPOS_BONO = [
@@ -180,11 +156,6 @@ trabajo_control_sheets = {
     for persona, book in trabajo_spreadsheets.items()
 }
 
-trabajo_calculs_sheets = {
-    persona: book.worksheet("Calculs")
-    for persona, book in trabajo_spreadsheets.items()
-}
-
 # =========================
 # USER STATE
 # =========================
@@ -252,7 +223,6 @@ def teclado_menu_trabajo():
     return [
         [InlineKeyboardButton("Claudia", callback_data="trabajo|Claudia")],
         [InlineKeyboardButton("Ramon", callback_data="trabajo|Ramon")],
-        [InlineKeyboardButton("➕ Añadir gasto", callback_data="trabajo_gasto|menu")],
         [InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")],
     ]
 
@@ -527,74 +497,6 @@ def resumen_trabajo_parcial(data):
                 valor = ", ".join(valor)
             texto += f"{label}: {valor} ✅\n"
     return texto
-
-
-def resumen_trabajo_gasto_parcial(data):
-    campos = [
-        ("trabajo_persona", "Persona"),
-        ("trabajo_gasto_usuario", "Usuario"),
-        ("trabajo_gasto_info", "Información"),
-        ("trabajo_gasto_cantidad", "Cantidad"),
-        ("trabajo_gasto_fecha", "Fecha"),
-    ]
-    texto = ""
-    for key, label in campos:
-        if key in data and data.get(key) not in [None, ""]:
-            texto += f"{label}: {data[key]} ✅\n"
-    return texto
-
-
-def columna_a_indice(columna):
-    idx = 0
-    for char in columna:
-        idx = idx * 26 + (ord(char.upper()) - ord("A") + 1)
-    return idx
-
-
-def primera_fila_libre_columna(hoja, columna_idx):
-    valores = hoja.col_values(columna_idx)
-    for idx, valor in enumerate(valores, start=1):
-        if not str(valor).strip():
-            return idx
-    return len(valores) + 1
-
-
-def guardar_gasto_trabajo(data):
-    persona = data["trabajo_persona"]
-    usuario = data["trabajo_gasto_usuario"]
-    columna_cantidad = TRABAJO_GASTOS_COLUMNAS[persona][usuario]
-
-    col_cantidad_idx = columna_a_indice(columna_cantidad)
-    col_info_idx = col_cantidad_idx - 1
-    col_fecha_idx = col_cantidad_idx + 1
-
-    hoja = trabajo_calculs_sheets[persona]
-    fila_destino = primera_fila_libre_columna(hoja, col_cantidad_idx)
-
-    rango_info = rowcol_to_a1(fila_destino, col_info_idx)
-    rango_cantidad = rowcol_to_a1(fila_destino, col_cantidad_idx)
-    rango_fecha = rowcol_to_a1(fila_destino, col_fecha_idx)
-
-    hoja.update(rango_info, [[data.get("trabajo_gasto_info", "")]], value_input_option="USER_ENTERED")
-    hoja.update(
-        rango_cantidad,
-        [[data.get("trabajo_gasto_cantidad", "")]],
-        value_input_option="USER_ENTERED",
-    )
-    hoja.update(
-        rango_fecha,
-        [[data.get("trabajo_gasto_fecha", "")]],
-        value_input_option="USER_ENTERED",
-    )
-    hoja.format(
-        rango_fecha,
-        {
-            "numberFormat": {
-                "type": "DATE",
-                "pattern": "dd/mm/yyyy",
-            }
-        },
-    )
 
 
 def construir_teclado_promotores(persona, seleccionados):
@@ -1097,68 +999,6 @@ async def recibir_texto(update, context):
             teclado_menu_trabajo(),
         )
         return
-    # ================= TRABAJO AÑADIR GASTO =================
-
-    if user_states[user_id].get("trabajo_gasto_esperando_info"):
-        user_states[user_id]["history"].append(user_states[user_id].copy())
-        user_states[user_id]["trabajo_gasto_info"] = texto
-        user_states[user_id]["trabajo_gasto_esperando_info"] = False
-        user_states[user_id]["trabajo_gasto_esperando_cantidad"] = True
-        await actualizar_mensaje_flujo(
-            update,
-            context,
-            user_id,
-            resumen_trabajo_gasto_parcial(user_states[user_id]) + "\n💰 Escribe la Cantidad:",
-            reply_markup=InlineKeyboardMarkup([botones_navegacion()]),
-        )
-        return
-
-    if user_states[user_id].get("trabajo_gasto_esperando_cantidad"):
-        try:
-            cantidad = parse_numero_con_signo(texto)
-        except ValueError:
-            await update.message.reply_text("❌ Cantidad no válida.")
-            return
-
-        user_states[user_id]["history"].append(user_states[user_id].copy())
-        user_states[user_id]["trabajo_gasto_cantidad"] = cantidad
-        user_states[user_id]["trabajo_gasto_esperando_cantidad"] = False
-        user_states[user_id]["trabajo_gasto_esperando_fecha"] = True
-        await actualizar_mensaje_flujo(
-            update,
-            context,
-            user_id,
-            resumen_trabajo_gasto_parcial(user_states[user_id]) + "\n📅 Escribe la Fecha (DD/MM/YYYY):",
-            reply_markup=InlineKeyboardMarkup([botones_navegacion()]),
-        )
-        return
-
-    if user_states[user_id].get("trabajo_gasto_esperando_fecha"):
-        try:
-            fecha = datetime.strptime(texto, "%d/%m/%Y")
-        except ValueError:
-            await update.message.reply_text("❌ Fecha inválida. Usa DD/MM/YYYY")
-            return
-
-        user_states[user_id]["history"].append(user_states[user_id].copy())
-        user_states[user_id]["trabajo_gasto_fecha"] = fecha.strftime("%d/%m/%Y")
-        user_states[user_id]["trabajo_gasto_esperando_fecha"] = False
-
-        guardar_gasto_trabajo(user_states[user_id])
-
-        resumen_guardado = (
-            "✅ Gasto de trabajo guardado en Calculs.\n\n"
-            + resumen_trabajo_gasto_parcial(user_states[user_id])
-        )
-        await update.message.reply_text(resumen_guardado)
-
-        await desplazar_menu_al_final(
-            context,
-            user_id,
-            "💼 Trabajo",
-            teclado_menu_trabajo(),
-        )
-        return
 
     # ================= LISTA COMPRA =================
     
@@ -1321,54 +1161,6 @@ async def button_handler(update, context):
         )
         return
         
-    if data == "trabajo_gasto|menu":
-        user_states[user_id] = {
-            "history": [],
-            "flujo": "trabajo_gasto",
-            "ui_chat_id": query.message.chat_id,
-            "ui_message_id": query.message.message_id,
-        }
-
-        keyboard = [
-            [InlineKeyboardButton("Ramon", callback_data="trabajo_gasto_persona|Ramon")],
-            [InlineKeyboardButton("Claudia", callback_data="trabajo_gasto_persona|Claudia")],
-            botones_navegacion(),
-        ]
-        await query.edit_message_text(
-            "💼 Trabajo · Añadir gasto\n\n¿De qué persona quieres añadir el gasto?",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
-        return
-
-    if data.startswith("trabajo_gasto_persona|"):
-        persona = data.split("|", 1)[1]
-        user_states[user_id]["history"].append(user_states[user_id].copy())
-        user_states[user_id]["trabajo_persona"] = persona
-
-        keyboard = [
-            [InlineKeyboardButton(usuario, callback_data=f"trabajo_gasto_usuario|{usuario}")]
-            for usuario in TRABAJO_GASTOS_COLUMNAS[persona].keys()
-        ]
-        keyboard.append(botones_navegacion())
-
-        await query.edit_message_text(
-            resumen_trabajo_gasto_parcial(user_states[user_id]) + "\nSelecciona usuario:",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
-        return
-
-    if data.startswith("trabajo_gasto_usuario|"):
-        usuario = data.split("|", 1)[1]
-        user_states[user_id]["history"].append(user_states[user_id].copy())
-        user_states[user_id]["trabajo_gasto_usuario"] = usuario
-        user_states[user_id]["trabajo_gasto_esperando_info"] = True
-
-        await query.edit_message_text(
-            resumen_trabajo_gasto_parcial(user_states[user_id]) + "\n✍️ Escribe la Información:",
-            reply_markup=InlineKeyboardMarkup([botones_navegacion()]),
-        )
-        return
-
     # DENTRO DE MENU TRABAJO
     if data.startswith("trabajo|"):
 
@@ -1915,39 +1707,6 @@ async def button_handler(update, context):
         # Reconstruir pantalla automáticamente
         data_state = user_states[user_id]
         
-        if data_state.get("flujo") == "trabajo_gasto":
-            if "trabajo_gasto_usuario" in data_state:
-                await query.edit_message_text(
-                    resumen_trabajo_gasto_parcial(data_state) + "\n✍️ Escribe la Información:",
-                    reply_markup=InlineKeyboardMarkup([botones_navegacion()])
-                )
-                return
-
-            if "trabajo_persona" in data_state:
-                persona = data_state["trabajo_persona"]
-                keyboard = [
-                    [InlineKeyboardButton(usuario, callback_data=f"trabajo_gasto_usuario|{usuario}")]
-                    for usuario in TRABAJO_GASTOS_COLUMNAS[persona].keys()
-                ]
-                keyboard.append(botones_navegacion())
-                await query.edit_message_text(
-                    resumen_trabajo_gasto_parcial(data_state) + "\nSelecciona usuario:",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-                return
-
-            keyboard = [
-                [InlineKeyboardButton("Ramon", callback_data="trabajo_gasto_persona|Ramon")],
-                [InlineKeyboardButton("Claudia", callback_data="trabajo_gasto_persona|Claudia")],
-                botones_navegacion(),
-            ]
-            await query.edit_message_text(
-                "💼 Trabajo · Añadir gasto\n\n¿De qué persona quieres añadir el gasto?",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            return
-
-
         if data_state.get("flujo") == "trabajo":
             if "trabajo_tipo_promo" in data_state:
                 keyboard = [[InlineKeyboardButton(x, callback_data=f"trabajo_tipo_promo|{x}")]

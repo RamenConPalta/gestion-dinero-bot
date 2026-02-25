@@ -124,40 +124,61 @@ credentials = Credentials.from_service_account_info(
 )
 
 client = gspread.authorize(credentials)
-spreadsheet = client.open(SHEET_NAME)
-sheet = spreadsheet.worksheet("REGISTRO")
-listas_sheet = spreadsheet.worksheet("LISTAS")
+spreadsheet = None
+sheet = None
+listas_sheet = None
 
 # =========================
 # GOOGLE SHEETS LISTA COMPRA
 # =========================
 
-lista_spreadsheet = client.open(SHEET_NAME_LISTA_COMPRA)
+lista_spreadsheet = None
 
-sheet_carrefour = lista_spreadsheet.worksheet("Carrefour")
-sheet_mercadona = lista_spreadsheet.worksheet("Mercadona")
-sheet_sirena = lista_spreadsheet.worksheet("Sirena")
-sheet_otros = lista_spreadsheet.worksheet("Otros")
+sheet_carrefour = None
+sheet_mercadona = None
+sheet_sirena = None
+sheet_otros = None
 
 # =========================
 # GOOGLE SHEETS TRABAJO
 # =========================
 
-trabajo_spreadsheets = {
-    persona: client.open(nombre)
-    for persona, nombre in TRABAJO_SPREADSHEETS.items()
-}
+trabajo_spreadsheets = {}
+trabajo_promos_sheets = {}
+trabajo_control_sheets = {}
 
-trabajo_promos_sheets = {
-    persona: book.worksheet("PromosDone")
-    for persona, book in trabajo_spreadsheets.items()
-}
 
-trabajo_control_sheets = {
-    persona: book.worksheet("ControlDeCases")
-    for persona, book in trabajo_spreadsheets.items()
-}
+def ensure_google_sheets_ready():
+    global spreadsheet, sheet, listas_sheet
+    global lista_spreadsheet, sheet_carrefour, sheet_mercadona, sheet_sirena, sheet_otros
+    global trabajo_spreadsheets, trabajo_promos_sheets, trabajo_control_sheets
 
+    if spreadsheet is not None:
+        return
+
+    spreadsheet = client.open(SHEET_NAME)
+    sheet = spreadsheet.worksheet("REGISTRO")
+    listas_sheet = spreadsheet.worksheet("LISTAS")
+
+    lista_spreadsheet = client.open(SHEET_NAME_LISTA_COMPRA)
+    sheet_carrefour = lista_spreadsheet.worksheet("Carrefour")
+    sheet_mercadona = lista_spreadsheet.worksheet("Mercadona")
+    sheet_sirena = lista_spreadsheet.worksheet("Sirena")
+    sheet_otros = lista_spreadsheet.worksheet("Otros")
+
+    trabajo_spreadsheets = {
+        persona: client.open(nombre)
+        for persona, nombre in TRABAJO_SPREADSHEETS.items()
+    }
+    trabajo_promos_sheets = {
+        persona: book.worksheet("PromosDone")
+        for persona, book in trabajo_spreadsheets.items()
+    }
+    trabajo_control_sheets = {
+        persona: book.worksheet("ControlDeCases")
+        for persona, book in trabajo_spreadsheets.items()
+    }
+    
 # =========================
 # USER STATE
 # =========================
@@ -392,6 +413,7 @@ def _leer_productos_supermercado(hoja):
 
 
 def obtener_lista_completa():
+    ensure_google_sheets_ready()
 
     mensaje = "🛒 LISTA ACTUAL COMPLETA\n\n"
 
@@ -435,15 +457,19 @@ async def notificar_lista_actualizada(context, mover_menu=False):
 # =========================
 
 def get_personas_gasto():
+    ensure_google_sheets_ready()
     valores = listas_sheet.col_values(19)[1:4]
     return [v for v in valores if v and v != "—"]
 
 def get_quien_paga():
+    ensure_google_sheets_ready()
     valores = listas_sheet.col_values(20)[1:4]
     return [v for v in valores if v and v != "—"]
 
 
 def get_listas_data():
+    ensure_google_sheets_ready()
+    
     now = time.monotonic()
     if _listas_cache["data"] is not None and now < _listas_cache["expires_at"]:
         return _listas_cache["data"]
@@ -561,6 +587,8 @@ def normalizar_texto(valor):
 
 
 def obtener_casas_trabajo(persona):
+    ensure_google_sheets_ready()
+    
     now = time.monotonic()
     cache = _trabajo_casas_cache.get(persona)
     if cache and now < cache["expires_at"]:
@@ -731,6 +759,7 @@ async def start(update, context):
 # =========================
 
 async def generar_resumen(query, año, mes, persona):
+    ensure_google_sheets_ready()
 
     print("=== RESUMEN NUEVO ===")
     print("Persona:", persona, "Año:", año, "Mes:", mes)
@@ -837,6 +866,7 @@ async def generar_resumen(query, año, mes, persona):
 
 
 def get_objetivos_mes_actual():
+    ensure_google_sheets_ready()
 
     hoja_obj = spreadsheet.worksheet("Cuenta común: gráficos y datos del mes actual")
     filas = hoja_obj.get_all_values()
@@ -880,6 +910,14 @@ async def recibir_texto(update, context):
     user_id = update.effective_user.id
 
     if not await verificar_autorizacion(update, context):
+        return
+
+    try:
+        ensure_google_sheets_ready()
+    except Exception as e:
+        logger.exception("Error inicializando Google Sheets")
+        if update.message:
+            await update.message.reply_text("❌ Error inicializando datos. Inténtalo de nuevo en unos segundos.")
         return
 
     if update.message:
@@ -1167,6 +1205,13 @@ async def button_handler(update, context):
     user_id = query.from_user.id
 
     if not await verificar_autorizacion(update, context):
+        return
+
+    try:
+        ensure_google_sheets_ready()
+    except Exception:
+        logger.exception("Error inicializando Google Sheets")
+        await query.edit_message_text("❌ Error inicializando datos. Inténtalo de nuevo en unos segundos.")
         return
 
     user_id=query.from_user.id
@@ -2149,11 +2194,15 @@ application.add_handler(
 
 
 async def warmup_caches(application):
-    loop = asyncio.get_running_loop()
-    try:
-        await loop.run_in_executor(None, get_listas_data)
-    except Exception as e:
-        logger.warning("No se pudo precalentar caché LISTAS: %s", e)
+    async def _warmup_background():
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(None, get_listas_data)
+            logger.info("Caché LISTAS precalentada")
+        except Exception as e:
+            logger.warning("No se pudo precalentar caché LISTAS: %s", e)
+
+    asyncio.create_task(_warmup_background())
 
 # =========================
 # START APP

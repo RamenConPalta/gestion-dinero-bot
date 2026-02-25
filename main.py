@@ -4,6 +4,7 @@ import logging
 import time
 import re
 import unicodedata
+import asyncio
 from difflib import SequenceMatcher
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest
@@ -87,6 +88,7 @@ TOKEN = get_required_env("BOT_TOKEN")
 SHEET_NAME = get_required_env("SPREADSHEET_NAME")
 SHEET_NAME_LISTA_COMPRA = get_required_env("SPREADSHEET_NAME_LISTA_COMPRA")
 PORT = int(os.environ.get("PORT", 10000))
+BOT_RUN_MODE = os.environ.get("BOT_RUN_MODE", "webhook").strip().lower()
 WEBHOOK_BASE_URL = os.environ.get(
     "WEBHOOK_BASE_URL",
     "https://gestion-dinero-bot.onrender.com"
@@ -217,6 +219,34 @@ def teclado_menu_lista():
         [InlineKeyboardButton("❌ Borrar", callback_data="lista|borrar")],
         [InlineKeyboardButton("⬅ Volver", callback_data="menu|volver")],
     ]
+
+
+def construir_teclado_borrado_lista(supermercado, productos, seleccionados):
+    keyboard = []
+
+    for i, producto in enumerate(productos, start=2):
+        marca = "✅" if i in seleccionados else "☐"
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{marca} {producto}",
+                callback_data=f"lista_toggle|{i}"
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton("🗑️ Eliminar seleccionados", callback_data="lista_confirm_delete")
+    ])
+    keyboard.append([
+        InlineKeyboardButton(
+            "🗑️ Borrar TODO este supermercado",
+            callback_data=f"lista_delete_all|{supermercado}"
+        )
+    ])
+    keyboard.append([
+        InlineKeyboardButton("⬅ Volver", callback_data="menu|lista")
+    ])
+
+    return keyboard
 
 
 def teclado_menu_trabajo():
@@ -357,6 +387,10 @@ def generar_barra(real, objetivo, largo=10):
 
     return texto
 
+def _leer_productos_supermercado(hoja):
+    return hoja.col_values(1)[1:]
+
+
 def obtener_lista_completa():
 
     mensaje = "🛒 LISTA ACTUAL COMPLETA\n\n"
@@ -368,8 +402,8 @@ def obtener_lista_completa():
         ("Otros", sheet_otros)
     ]:
 
-        productos = hoja.col_values(1)[1:]
-
+        productos = _leer_productos_supermercado(hoja)
+        
         mensaje += f"📍 {nombre}\n"
 
         if productos:
@@ -1953,14 +1987,11 @@ async def button_handler(update, context):
     if data == "lista_borrar|todo":
 
         for hoja in [sheet_carrefour, sheet_mercadona, sheet_sirena, sheet_otros]:
-    
-            filas = hoja.row_count
-    
-            if filas > 1:
-                hoja.batch_clear([f"A2:A{filas}"])
-                
-        await notificar_lista_actualizada(context)
-        await mostrar_menu_lista(query)
+            filas_con_datos = len(_leer_productos_supermercado(hoja)) + 1
+            if filas_con_datos > 1:
+                hoja.batch_clear([f"A2:A{filas_con_datos}"])
+
+        await query.answer("Listas borradas ✅")
         await notificar_lista_actualizada(context, mover_menu=True)
         await desplazar_menu_al_final(
             context,
@@ -1995,31 +2026,11 @@ async def button_handler(update, context):
             "ui_message_id": query.message.message_id,
         }
     
-        keyboard = []
-
-        for i, producto in enumerate(productos, start=2):
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"☐ {producto}",
-                    callback_data=f"lista_toggle|{i}"
-                )
-            ])
-        
-        keyboard.append([
-            InlineKeyboardButton("🗑️ Eliminar seleccionados", callback_data="lista_confirm_delete")
-        ])
-        
-        # 🔴 NUEVO BOTÓN
-        keyboard.append([
-            InlineKeyboardButton(
-                "🗑️ Borrar TODO este supermercado",
-                callback_data=f"lista_delete_all|{supermercado}"
-            )
-        ])
-        
-        keyboard.append([
-            InlineKeyboardButton("⬅ Volver", callback_data="menu|lista")
-        ])
+        keyboard = construir_teclado_borrado_lista(
+            supermercado,
+            productos,
+            set(),
+        )
     
         await query.edit_message_text(
             f"Selecciona productos a borrar ({supermercado}):",
@@ -2076,24 +2087,11 @@ async def button_handler(update, context):
         else:
             estado["seleccionados"].add(fila)
     
-        # reconstruir teclado
-        keyboard = []
-    
-        for i, producto in enumerate(productos, start=2):
-            marca = "✅" if i in estado["seleccionados"] else "☐"
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"{marca} {producto}",
-                    callback_data=f"lista_toggle|{i}"
-                )
-            ])
-    
-        keyboard.append([
-            InlineKeyboardButton("🗑️ Eliminar seleccionados", callback_data="lista_confirm_delete")
-        ])
-        keyboard.append([
-            InlineKeyboardButton("⬅ Volver", callback_data="menu|lista")
-        ])
+        keyboard = construir_teclado_borrado_lista(
+            supermercado,
+            productos,
+            estado["seleccionados"],
+        )
     
         await query.edit_message_text(
             f"Selecciona productos a borrar ({supermercado}):",
@@ -2149,14 +2147,29 @@ application.add_handler(
     MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_texto)
 )
 
+
+async def warmup_caches(application):
+    loop = asyncio.get_running_loop()
+    try:
+        await loop.run_in_executor(None, get_listas_data)
+    except Exception as e:
+        logger.warning("No se pudo precalentar caché LISTAS: %s", e)
+
 # =========================
-# START WEBHOOK
+# START APP
 # =========================
 
 if __name__ == "__main__":
-    application.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=f"{WEBHOOK_BASE_URL}/{TOKEN}",
-        url_path=TOKEN,
-    )
+    if BOT_RUN_MODE == "polling":
+        application.post_init = warmup_caches
+        logger.info("Iniciando bot en modo polling")
+        application.run_polling(drop_pending_updates=True)
+    else:
+        application.post_init = warmup_caches
+        logger.info("Iniciando bot en modo webhook")
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            webhook_url=f"{WEBHOOK_BASE_URL}/{TOKEN}",
+            url_path=TOKEN,
+        )

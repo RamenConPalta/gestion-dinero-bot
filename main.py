@@ -22,6 +22,8 @@ import gspread
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+PROCESS_STARTED_AT = time.time()
+
 TRABAJO_SPREADSHEETS = {
     "Claudia": "RegistreApostes2026_SeñoraLapa",
     "Ramon": "RegistreApostes2026_SeñorLapa",
@@ -744,6 +746,14 @@ async def mostrar_selector_meses(query):
     )
 
 async def start(update, context):
+    handler_started_at = time.time()
+    message_date = getattr(update.message, "date", None)
+    received_lag_seconds = None
+    if message_date is not None:
+        received_lag_seconds = max(
+            0,
+            (datetime.now(message_date.tzinfo) - message_date).total_seconds(),
+        )
 
     user_id = update.effective_user.id
     
@@ -753,6 +763,16 @@ async def start(update, context):
     await update.message.reply_text(
         "📲 Menú principal",
         reply_markup=InlineKeyboardMarkup(teclado_menu_principal())    )
+    
+    uptime_seconds = time.time() - PROCESS_STARTED_AT
+    handler_elapsed_ms = (time.time() - handler_started_at) * 1000
+    logger.info(
+        "Comando /start atendido | user_id=%s | lag_telegram=%.2fs | uptime=%.2fs | handler_ms=%.1f",
+        user_id,
+        received_lag_seconds if received_lag_seconds is not None else -1,
+        uptime_seconds,
+        handler_elapsed_ms,
+    )
 
 # =========================
 # RESUMEN
